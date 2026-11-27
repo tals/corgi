@@ -28,6 +28,17 @@ test("tmux selects at most three recent groups once per discovery", () => {
   p.close();
 });
 
+test("failed discovery does not claim the source has no sessions", () => {
+  const p = picker([]),
+    w = new Writer();
+  p.worker()!.catalog.message = "FileNotFound";
+  p.draw(w, new Rect(2, 5, 70, 12), true);
+  const output = w.buffered();
+  expect(output.includes("Couldn't read this source.")).toBe(true);
+  expect(output.includes("No available sessions found")).toBe(false);
+  p.close();
+});
+
 test("the cursor stops at either end unless it wraps", () => {
   const p = picker(["first", "second"]);
   p.move(false, false);

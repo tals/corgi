@@ -35,6 +35,10 @@ export class State {
   mode: Mode = "welcome";
   dismissable = false;
   cancelled = false;
+  /** Set when the import step finds nothing to copy; the host then finishes onboarding. */
+  done = false;
+  /** How many sources the import step last offered. */
+  private offered = 0;
   static start(mode: Mode, preset: km.Preset, prefix: km.Prefix, theme: palette.Theme | undefined = undefined) {
     const state = new State();
     state.mode = mode;
@@ -52,6 +56,7 @@ export class State {
     this.picker.close();
   }
   fail(error: Error | string) {
+    this.done = false;
     this.setMessage(typeof error === "string" ? error : error.message);
   }
   setMessage(msg: string) {
@@ -73,7 +78,8 @@ export class State {
     this.step = "keymap";
     this.help = new shortcut_help.State();
   }
-  enterImport() {
+  /** Scans every source; true when none has anything to copy, so onboarding can finish. */
+  enterImport(): boolean {
     this.step = "import";
     this.focus = 0;
     if (!this.source_initialized) {
@@ -87,6 +93,25 @@ export class State {
             : "tmux";
     }
     this.picker.scan();
+    for (const source of catalog.available_sources) this.picker.start(source);
+    this.follow();
+    this.offered = this.sources().length;
+    return this.nothingToImport();
+  }
+  /** The sources to offer: those still scanning or with something to copy. */
+  sources(): catalog.Source[] {
+    return catalog.available_sources.filter(source => !this.picker.empty(source));
+  }
+  private nothingToImport(): boolean {
+    return this.step === "import" && this.picker.stage === "choose" && this.sources().length === 0;
+  }
+  /** Moves off a source that came up empty, preferring one whose sessions are listed. */
+  private follow(): boolean {
+    const picker = this.picker,
+      sources = this.sources();
+    if (picker.stage !== "choose" || !picker.empty(picker.source) || !sources.length) return false;
+    picker.changeSource(sources.find(source => picker.workers.get(source)?.done) ?? sources[0]);
+    return true;
   }
   async begin(conn: Pick<Connection, "call">): Promise<boolean> {
     if (!this.picker.selectionCount()) return true;
@@ -95,7 +120,13 @@ export class State {
     return false;
   }
   async poll(conn: Pick<Connection, "call">): Promise<boolean> {
-    return this.step === "import" && (await this.picker.poll(conn));
+    if (this.step !== "import") return false;
+    const offered = this.sources().length,
+      dropped = offered !== this.offered;
+    this.offered = offered;
+    if (dropped && this.nothingToImport()) this.done = true;
+    const moved = this.follow();
+    return (await this.picker.poll(conn)) || dropped || moved;
   }
   async key(byte: number | string, conn: Pick<Connection, "call">): Promise<boolean> {
     const b = typeof byte === "string" ? byte.charCodeAt(0) : byte;
@@ -123,7 +154,7 @@ export class State {
         else if (this.focus === 2) this.enterKeymap();
         else if (this.preset === "cmux") this.step = "connect";
         else if (this.mode === "keyboard") return true;
-        else this.enterImport();
+        else return this.enterImport();
       }
     } else if (this.step === "keymap") {
       if (this.help.key(b)) this.step = "presets";
@@ -132,13 +163,13 @@ export class State {
       else if (b === 112) {
         this.preset = "herdr";
         if (this.mode === "keyboard") return true;
-        this.enterImport();
+        return this.enterImport();
       } else if (b === 13) {
         if (ghosttyHost()) {
           ghostty_integration.sync({ preset: "cmux", prefix: this.prefix });
           if (this.mode === "keyboard") return true;
-          this.enterImport();
           this.setMessage(i18n.t`Reload Ghostty: Cmd+Shift+, to apply Command keys.`);
+          return this.enterImport();
         } else this.setMessage(i18n.t`Press P for portable Herdr prefix keys, or Esc to choose again.`);
       }
     } else if (this.step === "import") {
@@ -147,8 +178,10 @@ export class State {
         if (picker.failed() && (b === 27 || b === 13)) picker.retry();
       } else if (b === 115 || b === 83) return true;
       else if (b === 27) this.step = "presets";
-      else if (b >= 49 && b <= 51) picker.changeSource((["tmux", "herdr", "cmux"] as catalog.Source[])[b - 49]);
-      else if (b === 106 || b === 14) picker.move(true, false);
+      else if (b >= 49 && b <= 51) {
+        const sources = this.sources();
+        if (b - 49 < sources.length) picker.changeSource(sources[b - 49]);
+      } else if (b === 106 || b === 14) picker.move(true, false);
       else if (b === 107 || b === 16) picker.move(false, false);
       else if (b === 9) this.focus = (this.focus + 1) % 2;
       else if (b === 13) return this.begin(conn);
@@ -170,9 +203,9 @@ export class State {
     if (key === "page_up") picker.scroll = Math.max(0, picker.scroll - 5);
     if (key === "page_down") picker.scroll += 5;
     if (this.step === "import" && picker.stage === "choose" && (seq === "\x1b[C" || seq === "\x1b[D")) {
-      const sources = catalog.available_sources,
+      const sources = this.sources(),
         delta = seq[2] === "C" ? 1 : sources.length - 1;
-      picker.changeSource(sources[(sources.indexOf(picker.source) + delta) % sources.length]);
+      if (sources.length) picker.changeSource(sources[(sources.indexOf(picker.source) + delta) % sources.length]);
     }
     return false;
   }
@@ -216,7 +249,7 @@ export class State {
         if (this.preset === "cmux") return this.key("p", conn);
       }
     } else if (this.step === "import" && this.picker.stage === "choose") {
-      if (ry === 6 && rx >= 3 && rx < 3 + 14 * catalog.available_sources.length)
+      if (ry === 6 && rx >= 3 && rx < 3 + 14 * this.sources().length)
         return this.key(49 + Math.floor((rx - 3) / 14), conn);
       const hit = this.picker.hit(pickerArea(b), x, y);
       if (hit) {
@@ -324,7 +357,7 @@ export class State {
   private drawImport(w: Writer, b: Rect) {
     const picker = this.picker;
     if (picker.stage === "choose") {
-      catalog.available_sources.forEach((source, i) => {
+      this.sources().forEach((source, i) => {
         put(w, b, 3 + i * 14, 6, `[ ${i + 1} ${source} ]`, source === picker.source ? bright : dim);
       });
     } else put(w, b, 3, 6, `${picker.progress.phase}  ${picker.progress.completed}/${picker.progress.total}`, text);
