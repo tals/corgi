@@ -157,6 +157,9 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Dings muted; attention markers remain on"]': () => ` 提示音已静音；仍会显示提醒标记`,
     '[" Esc done"]': () => ` Esc 完成`,
     '[" Focus pane "]': () => ` 聚焦窗格 `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` 未能开始创建分支。请检查新标签页。`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` 已提交创建分支的请求。请先检查新标签页，再决定是否重试。`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty 集成已关闭。请按 Cmd+Shift+, 重载 Ghostty`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -1633,6 +1636,10 @@ ${v1} 使用该账号。
     '[" Dings muted; attention markers remain on"]': () => ` 通知音をミュートしました。要確認マークは表示します`,
     '[" Esc done"]': () => ` Esc 完了`,
     '[" Focus pane "]': () => ` ペインを選択 `,
+    '[" Fork didn\'t start. Check the new tab."]': () =>
+      ` フォークを開始できませんでした。新しいタブを確認してください。`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` フォークを要求しました。再試行する前に新しいタブを確認してください。`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty連携を無効にしました。Cmd+Shift+,で再読み込みしてください`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -3146,6 +3153,9 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Dings muted; attention markers remain on"]': () => ` 알림음 꺼짐; 알림 표시는 유지됩니다`,
     '[" Esc done"]': () => ` Esc 완료`,
     '[" Focus pane "]': () => ` 패널 포커스 `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` 포크를 시작하지 못했습니다. 새 탭을 확인하세요.`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` 포크를 요청했습니다. 다시 시도하기 전에 새 탭을 확인하세요.`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty 연동이 꺼졌습니다. Cmd+Shift+,로 Ghostty를 다시 불러오세요`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -4660,6 +4670,9 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Dings muted; attention markers remain on"]': () => ` Звуки выключены; индикаторы внимания остаются`,
     '[" Esc done"]': () => ` Esc готово`,
     '[" Focus pane "]': () => ` Выбрать панель `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` Не удалось начать ответвление. Проверьте новую вкладку.`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` Запрос на ответвление отправлен. Перед повторной попыткой проверьте новую вкладку.`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Интеграция с Ghostty отключена. Перезагрузите Ghostty: Cmd+Shift+,`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>

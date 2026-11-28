@@ -94,6 +94,8 @@
   " Dings muted; attention markers remain on": " 通知音をミュートしました。要確認マークは表示します",
   " Esc done": " Esc 完了",
   " Focus pane ": " ペインを選択 ",
+  " Fork didn't start. Check the new tab.": " フォークを開始できませんでした。新しいタブを確認してください。",
+  " Fork was submitted. Check the new tab before trying again.": " フォークを要求しました。再試行する前に新しいタブを確認してください。",
   " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,": " Ghostty連携を無効にしました。Cmd+Shift+,で再読み込みしてください",
   " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,": " Ghostty連携を有効にしました。Cmd+Shift+,で再読み込みしてください",
   " Ghostty integration requires a local macOS viewer": " Ghostty連携はローカルのmacOSビューアーで利用できます",

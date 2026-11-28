@@ -2,10 +2,10 @@ import * as accountLock from "./account_lock";
 import * as protocol from "./protocol";
 import { Runtime, Launch } from "./runtime";
 import { Store } from "./workspace";
-import type { Create } from "./runtime";
+import type { Create, CommandWait } from "./runtime";
 import { Model, Tab } from "./layout";
 import { label } from "./pane/label";
-import { Entry, Semantics, resolve, analyze, shellStatus } from "./launch/command";
+import { Entry, Semantics, resolve, analyze, shellStatus, anchorExecutable } from "./launch/command";
 import { ResumeHint } from "./resume_hint";
 import { Text, adapter } from "./providers";
 import { logicalKey } from "./keys";
@@ -22,7 +22,7 @@ import * as agentMessage from "./agent_message";
 import * as dockingSession from "./docking_session";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
-export type Context = { socket: string; executable: string; theme: any };
+export type Context = { socket: string; executable: string; theme: any; defer?: (task: CommandWait) => void };
 /** The account a request names for `provider`: "" for the default. */
 function named(provider: Provider, spelled: string) {
   if (!spelled) return "";
@@ -155,7 +155,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         command: e.text(),
         interactive_command: true,
       });
-      r.pane(pane)!.launch = new Launch(undefined, e.command);
+      const created = r.pane(pane)!;
+      created.launch = new Launch(undefined, anchorExecutable(e.command, created.cwd));
       return location(r, pane);
     }
     case "agent.visibility": {
@@ -301,7 +302,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         { pane: p.id },
         p.agent().directory() || opts.cwd,
       );
-      return location(r, await r.forkAgent(opts, request.payload.target, request.payload.name ?? null));
+      return location(r, await r.forkAgent(opts, request.payload.target, request.payload.name ?? null, ctx.defer));
     }
     case "pane.create":
       return location(

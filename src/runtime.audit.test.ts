@@ -5,7 +5,8 @@ import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
 import { Theme } from "./theme";
 import { ResumeHint } from "./resume_hint";
-import { Text } from "./providers";
+import { Provider, Text } from "./providers";
+import * as sim from "./providers/sim";
 import { parseInventory } from "./trackers/worktrees";
 class LocalRuntime extends Runtime {
   override async create(opts: Create) {
@@ -161,6 +162,51 @@ test("a fork survives conversation capacity and sidebar placement errors", async
     get.mockRestore();
     move.mockRestore();
     warn.mockRestore();
+    r.destroy();
+  }
+});
+test("a deferred fork selects and names only the confirmed child", async () => {
+  let closed = false;
+  const { r, opts } = fixture(),
+    confirmation = Promise.withResolvers<string>(),
+    unregister = Provider.register({
+      ...sim.adapter,
+      launch: {
+        ...sim.adapter.launch,
+        fork: () => ({
+          args: [],
+          session: null,
+          named: false,
+          prepare: () => ({
+            keep: [],
+            args: [],
+            env: [],
+            finish: () => confirmation.promise,
+            close: () => {
+              closed = true;
+            },
+          }),
+        }),
+      },
+    });
+  try {
+    const source = await r.create(opts),
+      parent = r.conversations.get(sim.sim, "parent");
+    r.pane(source)!.attachment.select(parent);
+    let done: Promise<string | null> | undefined;
+    const child = await r.forkAgent(opts, source, "Copy", task => {
+      done = task.done;
+    });
+    expect(r.pane(child)!.pending_fork).toBe(true);
+    expect(r.wanted_names).toHaveLength(0);
+    confirmation.resolve("child");
+    expect(await done).toBeNull();
+    expect(r.pane(child)!.agent().sessionId()).toBe("child");
+    expect(r.pane(source)!.agent().sessionId()).toBe("parent");
+    expect(r.wanted_names).toMatchObject([{ pane: child, session: "child", name: "Copy" }]);
+    expect(closed).toBe(true);
+  } finally {
+    unregister();
     r.destroy();
   }
 });

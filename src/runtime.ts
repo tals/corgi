@@ -9,7 +9,14 @@ import type { Axis } from "./layout";
 import { Store, Workspace } from "./workspace";
 import { Provider, byProvider, Text, validRef, adapter } from "./providers";
 import { Agent } from "./agents";
-import { Entry, capacity as command_capacity, commandLine, identify, max_length } from "./launch/command";
+import {
+  Entry,
+  anchorExecutable,
+  capacity as command_capacity,
+  commandLine,
+  identify,
+  max_length,
+} from "./launch/command";
 import * as accounts from "./accounts";
 import * as agentOptions from "./agent_options";
 import { Terminal } from "./pane/terminal";
@@ -33,6 +40,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
 import { WantedEffort } from "./agent_effort";
 import * as effort from "./providers/effort";
+import type { PreparedFork } from "./providers/adapter";
 import type { HeldStop, Retry } from "./agent_retry";
 export type Create = {
   workspace: number;
@@ -53,6 +61,7 @@ export type Create = {
   socket: string;
   executable: string;
 };
+export type CommandWait = { done: Promise<string | null>; cancel: () => void };
 export const closed_per_workspace = 8;
 export class WantedName {
   static wait_ms = 20000;
@@ -60,6 +69,7 @@ export class WantedName {
     public pane: number,
     public name: string,
     public deadline: number,
+    public session?: string,
   ) {}
 }
 export class TypedRename {
@@ -68,6 +78,7 @@ export class TypedRename {
     public pane: number,
     public name: string,
     public deadline: number,
+    public session?: string,
   ) {}
 }
 /** A screen's non-blank rows: how many, and the last one. */
@@ -180,6 +191,16 @@ export class Launch {
     chosen.account_provider = provider;
     return chosen;
   }
+  /** Carries the original launcher into a new pane, including any options it needs after reopening. */
+  withArgs(args: string[], cwd: string): Launch {
+    return Object.assign(
+      new Launch(),
+      this,
+      this.agent
+        ? { agent: { ...this.agent, args: [...(this.agent.args ?? []), ...args], observed: false } }
+        : { command: anchorExecutable(this.typed(args), cwd) },
+    );
+  }
   /** The account its `provider` agent runs in, as the variables it sets in
    * `cwd` pick it; "" for the default. */
   account(provider: Provider | null = this.agent?.provider ?? this.account_provider, cwd = "/"): string {
@@ -210,7 +231,7 @@ export class Launch {
     ];
   }
   /** How the agent at `pid`, which someone started in a pane's shell, starts again. */
-  static observed(provider: Provider, pid: number) {
+  static observed(provider: Provider, pid: number, cwd: string) {
     const info = pid > 0 ? os.processArgs(pid, process_buffer, { env: true }) : null,
       found = info?.complete ? locate(info.argv) : null,
       kept =
@@ -222,7 +243,7 @@ export class Launch {
               }),
               args: info.argv.slice(found.at),
               flagged: false,
-              cwd: "/",
+              cwd: os.processCwd(pid) ?? cwd,
             })
           : null;
     return new Launch({ provider, args: kept?.args ?? [], env: kept?.env ?? [], observed: true });
@@ -269,6 +290,8 @@ export class Pane {
   /** The command that attaches to its agent where that already runs. */
   attached: string | null = null;
   ghost: Ghost | null = null;
+  /** The composer is reserved until its native fork command finishes. */
+  pending_fork = false;
   /** Recovered with nothing running: its old screen, faded, until `Runtime.wake`. */
   dormant = false;
   /** The file `corgi __view` asks this pane's viewers to show in its place,
@@ -822,7 +845,7 @@ export class Runtime {
         const a = p.agent();
         if (!a.session.len && !p.ghost) p.resume_hint = new ResumeHint();
         p.resume_hint.observe(a);
-        if (a.provider) p.launch ??= Launch.observed(a.provider, p.detection.pid);
+        if (a.provider) p.launch ??= Launch.observed(a.provider, p.detection.pid, p.cwd);
         else if (!p.ghost && !p.manual_resume && (p.idleShell() || p.launch?.agent?.observed)) p.launch = null;
       }
       this.stopShell(p.terminal);
@@ -1093,44 +1116,56 @@ export class Runtime {
   }
   /** The provider of the conversation `p` shows, and how to fork it. */
   static forkSource(p: Pane, name: string | null = null, cwd = p.cwd) {
+    if (p.pending_fork) throw Error("NoConversation");
     const a = p.agent(),
-      provider = a.provider,
-      session = a.sessionId(),
-      branch =
-        provider && validRef({ id: session })
-          ? adapter(provider).launch.fork({ session, transcript: a.transcriptPath(), cwd }, name)
-          : null;
-    if (!provider || !branch) throw Error("NoConversation");
+      provider = a.provider;
+    if (!provider) throw Error("NoConversation");
+    const launch = adapter(provider).launch;
+    const session = a.sessionId(),
+      branch = validRef({ id: session }) ? launch.fork({ session, transcript: a.transcriptPath(), cwd }, name) : null;
+    if (!branch) throw Error("NoConversation");
     return { provider, branch };
   }
-  async forkAgent(opts: Create, id: number, wanted: string | null) {
+  async forkAgent(opts: Create, id: number, wanted: string | null, defer?: (task: CommandWait) => void) {
     const name = wanted === null ? null : wanted.replace(/^ +| +$/g, "");
     if (name !== null && !validName(name)) throw Error("InvalidName");
     const p = this.pane(id);
     if (!p) throw Error("NoPane");
     const { provider, branch } = Runtime.forkSource(p, name, opts.cwd),
-      launch = p.launch ?? Launch.observed(provider, p.detection.pid),
-      typed = launch.typed(branch.args, p.resume_hint),
+      original = p.launch ?? Launch.observed(provider, p.detection.pid, p.cwd),
       old = p.terminal.fadedSnapshot(),
-      forked = {
-        ...opts,
-        ...launch.run(opts.executable, branch.args, p.resume_hint),
-        cols: p.terminal.vt.cols,
-        rows: p.terminal.vt.rows,
-      },
-      frozen = await this.frozenScreen(forked, old),
+      frozen = await this.frozenScreen({ ...opts, cols: p.terminal.cols, rows: p.terminal.rows }, old),
       ws = this.workspaces.owner(id)!,
       sourceTab = ws.model.tabs[ws.model.tabForPane(id)!].id;
-    let created: number;
+    let operation: PreparedFork | undefined;
+    let launch = original,
+      created: number;
     try {
+      operation = branch.prepare?.({
+        args: original.agent?.args ?? [],
+        shell: original.command ? commandLine(original.command, p.cwd) : undefined,
+        cwd: p.cwd,
+        account: p.account(),
+        pid: p.detection.pid,
+      });
+      if (operation) launch = original.withArgs(operation.keep, p.cwd);
+      const run = launch.run(opts.executable, [...branch.args, ...(operation?.args ?? [])], p.resume_hint),
+        forked = {
+          ...opts,
+          ...run,
+          env: [...(run.env ?? []), ...(operation?.env ?? [])],
+          cols: p.terminal.vt.cols,
+          rows: p.terminal.vt.rows,
+        };
       created = await this.create(forked);
     } catch (e) {
+      operation?.close();
       frozen.destroy();
       throw e;
     }
     const fork = this.pane(created)!;
     fork.launch = launch;
-    this.haunt(fork, frozen, old, typed);
+    this.haunt(fork, frozen, old, launch.typed(branch.args, p.resume_hint));
     const pickedName = name ?? p.agent().name.text();
     if (branch.session) {
       try {
@@ -1144,9 +1179,9 @@ export class Runtime {
       }
     } else {
       fork.attachment.provisional.provider = provider;
-      fork.attachment.provisional.name = new Text(pickedName);
+      if (!operation) fork.attachment.provisional.name = new Text(pickedName);
     }
-    if (!branch.named && name)
+    if (!operation && !branch.named && name)
       this.wanted_names.push(new WantedName(created, name, clock.milliTimestamp() + WantedName.wait_ms));
     ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(sourceTab)! + 1);
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
@@ -1164,7 +1199,47 @@ export class Runtime {
         console.warn("placing a fork's row:", error);
       }
     }
+    if (operation) {
+      const task = this.finishFork(fork, operation, provider, ws.id, name);
+      if (defer) defer(task);
+      else {
+        const error = await task.done;
+        if (error) throw Error(error);
+      }
+    }
     return created;
+  }
+  private finishFork(
+    pane: Pane,
+    operation: PreparedFork,
+    provider: Provider,
+    workspace: number,
+    name: string | null,
+  ): CommandWait {
+    const terminal = pane.terminal,
+      abort = new AbortController(),
+      live = () => !abort.signal.aborted && this.pane(pane.id)?.terminal === terminal && terminal.owner === "runtime";
+    pane.pending_fork = true;
+    const finish = async () => {
+      try {
+        const session = await operation.finish(terminal, live);
+        if (!live()) throw Error("ForkUnconfirmed");
+        const actor = this.conversations.get(provider, session);
+        actor.state.reopened(clock.microTimestamp());
+        actor.workspace = workspace;
+        pane.attachment.select(actor);
+        if (name)
+          this.wanted_names.push(new WantedName(pane.id, name, clock.milliTimestamp() + WantedName.wait_ms, session));
+        this.changed();
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : "ForkUnconfirmed";
+      } finally {
+        pane.pending_fork = false;
+        operation.close();
+      }
+    };
+    return { done: finish(), cancel: () => abort.abort() };
   }
   /** Changes the star on an agent and remembers its conversation for history. */
   starAgent(ws: Workspace, target: Target, starred: boolean, before: Target | null = null): void {

@@ -94,6 +94,8 @@
   " Dings muted; attention markers remain on": " 알림음 꺼짐; 알림 표시는 유지됩니다",
   " Esc done": " Esc 완료",
   " Focus pane ": " 패널 포커스 ",
+  " Fork didn't start. Check the new tab.": " 포크를 시작하지 못했습니다. 새 탭을 확인하세요.",
+  " Fork was submitted. Check the new tab before trying again.": " 포크를 요청했습니다. 다시 시도하기 전에 새 탭을 확인하세요.",
   " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,": " Ghostty 연동이 꺼졌습니다. Cmd+Shift+,로 Ghostty를 다시 불러오세요",
   " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,": " Ghostty 연동이 켜졌습니다. Cmd+Shift+,로 Ghostty를 다시 불러오세요",
   " Ghostty integration requires a local macOS viewer": " Ghostty 연동에는 로컬 macOS 클라이언트가 필요합니다",

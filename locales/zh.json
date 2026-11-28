@@ -94,6 +94,8 @@
   " Dings muted; attention markers remain on": " 提示音已静音；仍会显示提醒标记",
   " Esc done": " Esc 完成",
   " Focus pane ": " 聚焦窗格 ",
+  " Fork didn't start. Check the new tab.": " 未能开始创建分支。请检查新标签页。",
+  " Fork was submitted. Check the new tab before trying again.": " 已提交创建分支的请求。请先检查新标签页，再决定是否重试。",
   " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,": " Ghostty 集成已关闭。请按 Cmd+Shift+, 重载 Ghostty",
   " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,": " Ghostty 集成已开启。请按 Cmd+Shift+, 重载 Ghostty",
   " Ghostty integration requires a local macOS viewer": " Ghostty 集成需要本机 macOS 客户端",

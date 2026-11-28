@@ -94,6 +94,8 @@
   " Dings muted; attention markers remain on": " Звуки выключены; индикаторы внимания остаются",
   " Esc done": " Esc готово",
   " Focus pane ": " Выбрать панель ",
+  " Fork didn't start. Check the new tab.": " Не удалось начать ответвление. Проверьте новую вкладку.",
+  " Fork was submitted. Check the new tab before trying again.": " Запрос на ответвление отправлен. Перед повторной попыткой проверьте новую вкладку.",
   " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,": " Интеграция с Ghostty отключена. Перезагрузите Ghostty: Cmd+Shift+,",
   " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,": " Интеграция с Ghostty включена. Перезагрузите Ghostty: Cmd+Shift+,",
   " Ghostty integration requires a local macOS viewer": " Для интеграции с Ghostty нужен локальный клиент на macOS",

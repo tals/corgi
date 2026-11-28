@@ -49,6 +49,8 @@ export class Terminal extends EventEmitter {
   redrawing = false;
   /** When it last sent input to its program, in ms on the wall clock; 0 before any. */
   sent_at = 0;
+  /** Distinguishes writes even when two callers send input in the same millisecond. */
+  input_revision = 0;
   static create(cols: number, rows: number): Terminal {
     return new Terminal(cols, rows);
   }
@@ -270,6 +272,7 @@ export class Terminal extends EventEmitter {
       const result = n.terminal_send(this.handle, ptr(data), data.length);
       if (result) throw Error(result === -2 ? "InputBackpressure" : "OutOfMemory");
       this.sent_at = Date.now();
+      this.input_revision++;
     }
     this.arm();
   }
@@ -384,10 +387,12 @@ export class Terminal extends EventEmitter {
     this.waiting = true;
   }
   pasteEvent(contents: { mime: string; data: string | Uint8Array }[]): boolean {
-    return this.native({
+    const pasted = this.native({
       op: "paste",
       contents: contents.map(c => ({ mime: c.mime, data: Buffer.from(c.data).toString("base64") })),
     });
+    if (pasted) this.input_revision++;
+    return pasted;
   }
   takeCopied(): string | null {
     if (this.destroyed) throw Error("TerminalClosed");

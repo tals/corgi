@@ -422,6 +422,18 @@ export type Fork = {
   session: string | null;
   /** Whether `args` names the fork; if not, core renames it once it shows up. */
   named: boolean;
+  /** Prepares options for this launch and confirms which session the new pane opened. */
+  prepare?(source: ForkSource): PreparedFork;
+};
+export type ForkSource = { args: string[]; shell?: CommandLine; cwd: string; pid: number; account: string };
+export type PreparedFork = {
+  /** Additional arguments the original launcher should keep when reopening the child. */
+  keep: string[];
+  /** Arguments and environment used only for this fork. */
+  args: string[];
+  env: [string, string][];
+  finish(terminal: Terminal, live: () => boolean): Promise<string>;
+  close(): void;
 };
 /** What became of starting a failed turn again: "held" when someone worked
  * in its pane meanwhile, so it may try once they stop; "declined" when it
