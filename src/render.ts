@@ -283,6 +283,8 @@ export interface Ui {
   inline_rename: RenameState | null;
   sidebar_open: boolean;
   sidebar_band: number;
+  /** Whether the sidebar shows the compact tree. */
+  sidebar_compact: boolean;
   /** The folded sidebar's list that shows as a drawer over the panes. */
   sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
@@ -386,6 +388,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     inline_rename: null,
     sidebar_open: true,
     sidebar_band: 0,
+    sidebar_compact: false,
     sidebar_drawer: null,
     corgi_badge: "none",
     supports_kitty_graphics: false,
@@ -814,6 +817,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
     entries.length,
     u.prefs.sidebar_split,
     u.sidebar_band,
+    u.sidebar_compact,
   )
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width)
@@ -1198,11 +1202,11 @@ export function frame(
       side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
   }
   side.spotlight = u.worktree_spotlight;
-  const archive_marks: { brand: Brand; x: number; y: number }[] = [];
+  const sidebar_marks: { brand: Brand; x: number; y: number }[] = [];
   const dim_sidebar = none !== null && u.archived_workspaces.length === 0;
   if (!dim_sidebar && u.pictures && u.cell_pixels)
-    side.archive_marks = (brand, x, y) => {
-      archive_marks.push({ brand, x, y });
+    side.brand_marks = (brand, x, y) => {
+      sidebar_marks.push({ brand, x, y });
     };
   if (dim_sidebar) {
     const dimmed = new Writer();
@@ -1508,7 +1512,7 @@ export function frame(
   if (u.pictures && u.cell_pixels && !u.signal_bars_hidden && !u.signin_draw && !u.signin_exit)
     for (const { quality, x, y } of signals) signalBars.place(u.pictures, quality, x, y, u.cell_pixels);
   if (u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
-    for (const { brand, x, y } of archive_marks) tabIcons.place(u.pictures, brand, x, y, u.cell_pixels);
+    for (const { brand, x, y } of sidebar_marks) tabIcons.place(u.pictures, brand, x, y, u.cell_pixels);
   if (marks && u.pictures && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x } of marks) tabIcons.place(u.pictures, brand, x, side.tabY(), u.cell_pixels);
   if (dragging) {

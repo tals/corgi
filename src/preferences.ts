@@ -75,6 +75,8 @@ export class Preferences {
   /** Unset follows this viewer's locale; CORGI_LANG overrides an explicit choice. */
   language: locale.Locale | undefined = undefined;
   resources: Resources = { enabled: true };
+  /** One-line workspace and agent rows in a single tree, without the workspaces box. */
+  compact_sidebar = false;
   /** Decorative sidebar corgi brightness, from off (0) to full (100). */
   corgi_intensity = 50;
   /** The theme picked in setup or onboarding; unset, the terminal picks
@@ -128,6 +130,7 @@ const settings: readonly string[] = [
   "theme",
   "corgi_intensity",
   "resources",
+  "compact_sidebar",
   "worktree_folder",
   "sidebar_position",
 ];
@@ -607,6 +610,10 @@ function readSettings(d: Record<string, any>, v: Preferences): Skipped[] {
     )
       unexpected("resources");
     else v.resources = { enabled: resources.enabled ?? true };
+  }
+  if ("compact_sidebar" in d) {
+    if (typeof d.compact_sidebar !== "boolean") unexpected("compact_sidebar");
+    else v.compact_sidebar = d.compact_sidebar;
   }
   v.preset = supportedPreset(v.preset);
   if ("keys" in d) {

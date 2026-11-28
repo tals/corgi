@@ -1,6 +1,6 @@
 import * as viewerRef from "./viewer_ref";
 import { expect, test } from "bun:test";
-import { State, initial } from "./sidebar_focus";
+import { State, initial, stops, steps } from "./sidebar_focus";
 import { entry } from "./sidebar";
 
 const agents = () => [
@@ -168,4 +168,42 @@ test("a drawer keeps the cursor in its own list", () => {
   const workspaces = new State({ workspace: viewerRef.workspace(1, 5) }, "workspaces");
   workspaces.cross(viewerRef.workspace(1, 5), list, false);
   expect(workspaces.cursor).toEqual({ workspace: viewerRef.workspace(1, 5) });
+});
+
+test("in the compact tree the cursor skips open headings, but stops on a folded one", () => {
+  const open = { agents: 1, working: 0, attention: 0, folded: false, current: false };
+  const list = [
+    entry({ target: { machine: "atlas" }, compact: true, group: open }),
+    entry({ target: { group: viewerRef.workspace(1, 4) }, compact: true, group: open }),
+    entry({ target: viewerRef.pane(0, 1), compact: true }),
+    entry({ target: { group: viewerRef.workspace(1, 5) }, compact: true, group: { ...open, folded: true } }),
+    entry({ target: { group: viewerRef.workspace(1, 6) }, compact: true, group: open }),
+    entry({ target: viewerRef.pane(0, 2), compact: true }),
+  ];
+  expect(initial(viewerRef.workspace(1, 4), list)).toEqual({ entry: viewerRef.pane(0, 1) });
+  const s = new State({ entry: viewerRef.pane(0, 1) }, "agents");
+  const steps = [true, true, true].map(down => {
+    s.move([], list, down);
+    return s.cursor;
+  });
+  expect(steps).toEqual([
+    { entry: { group: viewerRef.workspace(1, 5) } },
+    { entry: viewerRef.pane(0, 2) },
+    { entry: viewerRef.pane(0, 1) },
+  ]);
+});
+
+test("in the compact tree a workspace without agents is a stop, and a click opens any open heading", () => {
+  const heading = (id: number, agents: number) =>
+    entry({
+      target: { group: viewerRef.workspace(1, id) },
+      compact: true,
+      group: { agents, working: 0, attention: 0, folded: false, current: false },
+    });
+  const list = [heading(4, 1), entry({ target: viewerRef.pane(0, 1), compact: true }), heading(5, 0)];
+  expect(list.map(steps)).toEqual([false, true, true]);
+  expect(list.map(stops)).toEqual([true, true, true]);
+  const s = new State({ entry: viewerRef.pane(0, 1) }, "agents");
+  s.move([], list, true);
+  expect(s.cursor).toEqual({ entry: { group: viewerRef.workspace(1, 5) } });
 });

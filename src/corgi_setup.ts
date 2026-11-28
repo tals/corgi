@@ -110,6 +110,7 @@ export const Summarizer = {
 export type Item =
   | "ui_style"
   | "readings"
+  | "compact_sidebar"
   | "clever_corgi"
   | "theme"
   | "language"
@@ -143,6 +144,7 @@ const list = (): ListRow[] => [
   "shell",
   "source_control",
   "readings",
+  "compact_sidebar",
   null,
   "terminal",
   null,
@@ -159,6 +161,7 @@ export const items = list().filter((row): row is Item => typeof row === "string"
 const labels = (): Record<Item, string> => ({
   ui_style: i18n.t`UI Style`,
   readings: i18n.t`Resources`,
+  compact_sidebar: i18n.t`Compact sidebar`,
   clever_corgi: i18n.t`Clever Corgi`,
   theme: i18n.t`Theme`,
   language: i18n.t`Language`,
@@ -196,7 +199,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
-  | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
+  | { kind: "readings" | "compact_sidebar" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
   | { kind: "sidebar_position"; position: SidebarPosition }
   | { kind: "theme"; theme: palette.Theme }
@@ -928,6 +931,8 @@ export class Menu implements LinkSource {
     switch (this.item) {
       case "readings":
         return { kind: "readings", on: !prefs.resources.enabled };
+      case "compact_sidebar":
+        return { kind: "compact_sidebar", on: !prefs.compact_sidebar };
       case "detach":
         return { kind: "detach" };
       default:
@@ -1808,6 +1813,18 @@ export class Menu implements LinkSource {
           blank,
           { tag: "note", text: i18n.t`Sampling stops once every viewer turns it off.` },
         ];
+      case "compact_sidebar":
+        return [
+          title(i18n.t`Compact sidebar`),
+          lead(i18n.t`One list of workspaces with their agents under them, one line each.`),
+          blank,
+          ...onOff(prefs.compact_sidebar, "compact_sidebar", [
+            i18n.t`show workspaces and agents as one tree`,
+            i18n.t`show the workspaces and agents boxes`,
+          ]).map(option),
+          blank,
+          { tag: "note", text: i18n.t`Ports, Git and resource readings show only in the full sidebar.` },
+        ];
       case "clever_corgi": {
         const second = note(s.choice, s);
         return [
@@ -2146,6 +2163,8 @@ export class Menu implements LinkSource {
     switch (item) {
       case "readings":
         return flag(prefs.resources.enabled);
+      case "compact_sidebar":
+        return flag(prefs.compact_sidebar);
       case "clever_corgi":
         return { text: "", tone: "faint" };
       case "theme":
@@ -2313,7 +2332,7 @@ function sidebarOption(position: SidebarPosition, current: SidebarPosition): Opt
     action: i18n.t`use`,
   };
 }
-function onOff(enabled: boolean, kind: "readings", details: [string, string]): Option[] {
+function onOff(enabled: boolean, kind: "readings" | "compact_sidebar", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({
     label: value ? i18n.t`On` : i18n.t`Off`,
     detail: details[i],

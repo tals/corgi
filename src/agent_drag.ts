@@ -1,5 +1,5 @@
 import type * as viewerRef from "./viewer_ref";
-import { isAgent, isGroup, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
+import { isAgent, isGroup, isMachine, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 
 const scroll_delay_ms = 400;
@@ -46,7 +46,7 @@ export class Drag {
     this.ids = view.entries.map(e => e.target);
     this.target = this.ids[source];
     // Hand-sorted, an agent stays with its workspace; worktree labels never stop it.
-    const bound = sort === "manual" ? isGroup : isSection;
+    const bound = sort === "manual" ? (t: Target) => isGroup(t) || isMachine(t) : isSection;
     this.first = source;
     while (this.first > 0 && !bound(view.entries[this.first - 1].target)) this.first--;
     this.end = source + 1;
@@ -54,7 +54,7 @@ export class Drag {
     this.starred = view.entries[source].section === "starred";
     let owner: viewerRef.Workspace | null = null;
     this.owners = view.entries.map(e => {
-      if (isSection(e.target) || isGroup(e.target)) owner = null;
+      if (isSection(e.target) || isGroup(e.target) || isMachine(e.target)) owner = null;
       else if (isSubhead(e.target)) owner = e.target.workspace;
       return owner;
     });

@@ -23,6 +23,7 @@ import {
   work,
   drawResources,
   resourceAt,
+  compactResourceAt,
   agentAt,
   writeExit,
   writeRevealedDetail,
@@ -990,6 +991,189 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
     " ┣○  release notes         │",
     " ┃   Session ended         │",
   ]);
+});
+
+test("compact sidebar draws one tree of one-line workspaces and agents under the title", () => {
+  const entries = [
+    entry({
+      target: { group: viewerRef.workspace(0, 1) },
+      name: "corgi",
+      compact: true,
+      group: { agents: 2, working: 1, attention: 0, folded: false, current: true },
+    }),
+    entry({
+      target: viewerRef.pane(0, 1),
+      name: "api refactor",
+      provider: "codex",
+      state: "blocked",
+      compact: true,
+      subagents: { running: 2, blocked: 0, waiting: false },
+    }),
+    entry({ target: viewerRef.pane(0, 2), name: "release notes", provider: "claude", state: "working", compact: true }),
+    entry({
+      target: { group: viewerRef.workspace(0, 2) },
+      name: "notes",
+      compact: true,
+      group: { agents: 0, working: 0, attention: 0, folded: false, current: false },
+    }),
+  ];
+  const view = View.init(100, 30, true, 0, entries.length, 12, 0, true).withEntries(entries);
+  // The title, the rule, the agents header and its blank row; the split is ignored.
+  expect(view.middle()).toBe(2);
+  const top = view.middle() + 2;
+  for (const [row, index] of [
+    [0, 0],
+    [1, 1],
+    [2, 2],
+    [3, 3],
+  ])
+    expect(view.hit(5, top + row)).toEqual(H("entry", index));
+  expect(view.hit(5, top + 4)).toEqual(H("none"));
+  // No split to drag, no workspace rows and no scope to pick.
+  expect(view.splitHandle(5, view.middle() - 1)).toBe(false);
+  expect(view.hit(5, 1)).toEqual(H("none"));
+  expect(view.hit(view.scopeStart() + 1, view.middle())).toEqual(H("none"));
+  const out = draw(view, entries, []);
+  const lines = hostText(out).split("\n");
+  expect(lines.slice(0, top + 4).map(line => line.slice(0, 80).trimEnd())).toEqual([
+    "  workspaces     [ + ]  <  │",
+    "  ━━━━━━━━━━━━━━━━━━━━━━━━━┥",
+    "  agents           New  ▾  │",
+    "                           │",
+    " ▾ corgi             1▶ 1○ │",
+    " ├●  api refactor       ↳2 │",
+    " ╰▶  release notes         │",
+    " ▾ notes                   │",
+  ]);
+  // The current workspace's line takes the selected tint; another's doesn't.
+  const other = entries.map(e => ({ ...e, group: { ...e.group, current: false } }));
+  expect(count(out, selected_bg)).toBeGreaterThan(count(draw(view.withEntries(other), other, []), selected_bg));
+  // A full sidebar gives each agent two rows, so the compact one fits twice as many.
+  const agents = Array.from({ length: 40 }, (_, i) =>
+    entry({ target: viewerRef.pane(0, i + 1), name: `agent ${i}`, provider: "codex" }),
+  );
+  const full = View.init(100, 30, true, 0, agents.length, 12).withEntries(agents);
+  const compact = agents.map(e => ({ ...e, compact: true }));
+  const tree = View.init(100, 30, true, 0, compact.length, 12, 0, true).withEntries(compact);
+  expect(tree.capacity).toBe(tree.listRows());
+  expect(tree.capacity).toBeGreaterThan(2 * full.capacity);
+});
+
+test("a compact agent row shows its agent's mark before its name where the host shows images", () => {
+  const entries = [
+    entry({ target: viewerRef.pane(0, 1), name: "release notes", provider: "claude", compact: true }),
+    entry({ target: viewerRef.pane(0, 2), name: "api refactor", provider: "pi", compact: true }),
+  ];
+  const view = View.init(100, 30, true, 0, entries.length, 12, 0, true).withEntries(entries);
+  const plain = view.fieldRect(viewerRef.pane(0, 1), [])!;
+  view.supports_kitty_graphics = true;
+  const marks: [string, number, number][] = [];
+  view.brand_marks = (brand, col, row) => void marks.push([brand, col, row]);
+  const top = view.middle() + 2;
+  const lines = hostText(draw(view, entries, [])).split("\n");
+  // Claude's mark sits between the status dot and the name. Pi has no mark, but its name lines up.
+  expect(marks).toEqual([["claude", 4, top]]);
+  expect(lines.slice(top, top + 2).map(line => line.slice(0, 20).trimEnd())).toEqual([
+    "  ○    release notes",
+    "  ○    api refactor",
+  ]);
+  expect(view.fieldRect(viewerRef.pane(0, 1), [])!.x).toBe(plain.x + 2);
+});
+
+test("a workspace's line in the compact tree opens its readings card", () => {
+  const entries = [
+    entry({
+      target: { group: viewerRef.workspace(0, 1) },
+      name: "corgi",
+      compact: true,
+      group: { agents: 1, working: 0, attention: 0, folded: false, current: true },
+    }),
+    entry({ target: viewerRef.pane(0, 1), name: "quick", provider: "codex", compact: true }),
+  ];
+  const view = View.init(100, 30, true, 0, entries.length, 12, 0, true).withEntries(entries);
+  view.resources = { enabled: true };
+  const workspaces = [
+    workspaceEntry({ id: viewerRef.workspace(0, 1), name: "corgi", cwd: "", active: true, resources: hot }),
+  ];
+  const top = view.middle() + 2;
+  expect(compactResourceAt(view, entries, workspaces, 5, top)?.name).toBe("corgi");
+  // An agent's line has its own hover.
+  expect(compactResourceAt(view, entries, workspaces, 5, top + 1)).toBeNull();
+  view.resources = { enabled: false };
+  expect(compactResourceAt(view, entries, workspaces, 5, top)).toBeNull();
+});
+
+test("an indented compact row renames under its name and keeps its notes beside its subagents", () => {
+  const row = (indent: number) =>
+    entry({
+      target: viewerRef.pane(0, 1),
+      name: "quick",
+      provider: "codex",
+      compact: true,
+      indent,
+      notes: 2,
+      subagents: { running: 2, blocked: 0, waiting: false },
+    });
+  const view = (indent: number) => View.init(100, 30, true, 0, 1, 12, 0, true).withEntries([row(indent)]);
+  const flat = view(0).fieldRect(viewerRef.pane(0, 1), [])!,
+    indented = view(2).fieldRect(viewerRef.pane(0, 1), [])!;
+  expect(indented.x).toBe(flat.x + 2);
+  expect(view(2).nameRoom(row(2))).toBe(view(0).nameRoom(row(0)) - 2);
+  const line = hostText(draw(view(2), [row(2)], [])).split("\n")[view(2).middle() + 2];
+  expect(line).toContain("↳2");
+  expect(line).toContain("2 notes");
+});
+
+test("the compact tree's machine lines start at the edge, with their workspaces indented under them", () => {
+  const machine = (name: string, quality: 0 | 1 | 2 | 3 | 4 | null, folded = false) =>
+    entry({
+      target: { machine: name },
+      name,
+      compact: true,
+      group: { agents: 0, working: 0, attention: 0, folded, current: false, link: { quality, status: null } },
+    });
+  const entries = [
+    machine("orion", null),
+    entry({
+      target: { group: viewerRef.workspace(0, 1) },
+      name: "dev",
+      compact: true,
+      indent: 2,
+      group: { agents: 1, working: 0, attention: 0, folded: false, current: true },
+    }),
+    entry({ target: viewerRef.pane(0, 1), name: "quick", provider: "codex", compact: true, indent: 2 }),
+    machine("atlas", 4),
+    entry({
+      target: { group: viewerRef.workspace(1, 1) },
+      name: "homelab",
+      compact: true,
+      indent: 2,
+      group: { agents: 0, working: 0, attention: 0, folded: false, current: false },
+    }),
+    machine("draco", null, true),
+  ];
+  const view = View.init(100, 30, true, 0, entries.length, null, 0, true).withEntries(entries);
+  const top = view.middle() + 2;
+  const out = draw(view, entries, []);
+  expect(
+    hostText(out)
+      .split("\n")
+      .slice(top, top + 6)
+      .map(line => line.slice(0, 80).trimEnd()),
+  ).toEqual([
+    " ▾ orion                   │",
+    "   ▾ dev                1○ │",
+    "   ╰○  quick               │",
+    " ▾ atlas              ▂▄▆█ │",
+    "   ▾ homelab               │",
+    " ▸ draco                   │",
+  ]);
+  // Each line is its own row to click.
+  for (let row = 0; row < 6; row++) expect(view.hit(5, top + row)).toEqual(H("entry", row));
+  // A workspace's last agent closes its rail before the next machine.
+  expect(has(out, "╰")).toBe(true); // The keyboard cursor on a machine's line takes the selected tint.
+  const focused = entries.map((e, i) => ({ ...e, focused: i === entries.length - 1 }));
+  expect(count(draw(view.withEntries(focused), focused, []), selected_bg)).toBeGreaterThan(count(out, selected_bg));
 });
 
 test("group headers name their machine, which takes at most half the room", () => {
@@ -2323,4 +2507,18 @@ test("a name longer than the field shows its tail, and the caret follows it", ()
   expect(caret(view.withRename(renaming(viewerRef.pane(0, 9), "lost")))).toBe("");
   const scrolled = View.init(100, 30, true, 3, 20).withWorkspaces(3, 0).withEntries(agents(20));
   expect(caret(scrolled.withRename(renaming(viewerRef.pane(0, 1), "gone")))).toBe("");
+});
+
+test("a compact row's rename message stays over the agent below it", () => {
+  const entries = [
+    entry({ target: viewerRef.pane(0, 1), name: "release notes", provider: "claude", compact: true }),
+    entry({ target: viewerRef.pane(0, 2), name: "api refactor", provider: "codex", compact: true }),
+  ];
+  const view = View.init(100, 30, true, 0, entries.length, 12, 0, true)
+    .withEntries(entries)
+    .withRename(renaming(viewerRef.pane(0, 1), "notes", "", "Names are 64 characters at most"));
+  const top = view.middle() + 2;
+  const lines = hostText(draw(view, entries, [])).split("\n");
+  expect(lines[top + 1]).toContain("Names are 64");
+  expect(lines[top + 1]).not.toContain("api refactor");
 });

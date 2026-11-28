@@ -121,7 +121,8 @@ Try an isolated example with `./go.ts --sandbox hibernation`.
 
 Hover the workspace's resource row for CPU, memory and disk history plus a
 process table. Click a metric's header to sort. **Corgi setup → Resources**
-turns readings on or off; sampling stops when no viewer displays them.
+turns readings on or off; sampling stops when no viewer displays them. The
+compact sidebar has no resource row; hover a workspace's line for its card.
 
 Click a process, press an arrow over the card, or press prefix `R` (`corgi
 action resources`) to hold the card open for the keyboard. Its rows then stay
