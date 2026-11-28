@@ -3,7 +3,7 @@
 import { BoundedText, Path } from "../bounded_text";
 import { Inventory } from "../activity/background_tasks";
 import { Text as SummaryText } from "../activity/summary";
-import type { Text } from "./common";
+import type { Pane } from "../runtime";
 import type { State } from "../agents";
 import type { Location } from "../worktrees";
 import type { Tokens } from "../usage/live";
@@ -12,15 +12,17 @@ import type { Model } from "./model";
 export class Name extends BoundedText(160) {}
 export class Role extends BoundedText(80) {}
 export class Turn extends BoundedText(128) {}
-/** A pane whose title names a session, or, with `actor`, a conversation to follow. */
+/** The attachment an observer read, or a known conversation when actor is set. */
 export type Request = {
   pane: number;
   pid: number;
-  prefix: Text;
   actor: number;
   generation: bigint;
-  title_revision: bigint;
+  /** Recheck provider-owned evidence that may change before the observation is applied. */
+  current?(pane: Pane): boolean;
 };
+/** The session whose selection this pane lost. */
+export type Lost = Request & { session: string };
 export class Child {
   session = "";
   name = new Name();

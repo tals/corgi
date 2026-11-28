@@ -65,7 +65,7 @@ test("agent processes carry their provider's mark, which the legend explains", (
       };
     state.update(work, true);
     const w = new Writer();
-    draw(w, new Rect(0, 0, 82, 24), "corgi", { workspaces: [work] }, state);
+    draw(w, new Rect(0, 0, 120, 24), "corgi", { workspaces: [work] }, state);
     expect(w.buffered()).toContain("§ sim");
     const legend = Provider.all.map(p => `${adapter(p).glyph} ${adapter(p).label}`).join("   ");
     expect(w.buffered()).toContain(legend);

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as codex from "./providers/codex";
-import { HeldHooks, max_age, max_sessions, per_session, type Held } from "./held_hooks";
+import { Reading } from "./usage/context_window";
+import { HeldHooks, HeldReadings, max_age, max_sessions, per_session, type Held } from "./held_hooks";
 
 function held(session: string, seq: bigint, at: number): Held {
   const event = codex.adapter.hook({ hook_event_name: "PreToolUse", session_id: session, turn_id: "t" })!;
@@ -38,4 +39,18 @@ test("the hold keeps a session's newest hooks and the newest sessions", () => {
   expect(hooks.size).toBe(max_sessions);
   expect(hooks.take("codex", "s0", 1)).toEqual([]);
   expect(hooks.take("codex", `s${max_sessions}`, 1).length).toBe(1);
+});
+
+test("pending readings keep the newest sample per session, bounded by age and session count", () => {
+  const held = new HeldReadings(),
+    reading = Object.assign(new Reading(), { used: 1n, window: 100n });
+  held.add("codex", "active", reading, 2n, 1);
+  held.add("codex", "active", reading, 1n, 2);
+  expect(held.take("claude", "active", 2)).toBeNull();
+  expect(held.take("codex", "active", 2)?.seq).toBe(2n);
+  expect(held.take("codex", "active", 2)).toBeNull();
+  for (let i = 0; i <= max_sessions; i++) held.add("codex", `s${i}`, reading, 3n, 1);
+  expect(held.take("codex", "s0", 1)).toBeNull();
+  expect(held.take("codex", "s1", max_age + 1)).toBeNull();
+  expect(held.take("codex", "s2", max_age)?.seq).toBe(3n);
 });

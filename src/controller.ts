@@ -11544,6 +11544,10 @@ export function breadcrumbs(p: Pane): string {
 /** What a viewer says when renaming or forking `agent` fails with `err`. */
 export function agentMessage(err: string, fallback: string, agent: Agent | undefined): string {
   switch (err) {
+    case "ForkNotReady":
+      return i18n.t` Fork didn't start. Check the new tab.`;
+    case "ForkUnconfirmed":
+      return i18n.t` Fork was submitted. Check the new tab before trying again.`;
     case "AgentBusy": {
       const name = agent?.provider ? adapter(agent.provider).name : i18n.t`This agent`;
       return i18n.t` ${name} is busy: rename it once its input box is empty`;

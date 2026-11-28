@@ -18,7 +18,8 @@ function renamed(runtime: Runtime, pane: Pane, name: string) {
   runtime.changed();
 }
 /** Renames the agent `pane` shows, or with a null `name` only checks that it can. */
-export async function renamePane(pane: Pane, name: string | null, runtime: Runtime) {
+export async function renamePane(pane: Pane, name: string | null, runtime: Runtime, session?: string) {
+  if (pane.pending_fork) throw Error("AgentBusy");
   const agent = pane.agent();
   if (pane.terminal.exited || !agent.provider) throw new Error("NoConversation");
   if (name !== null && !validName(name)) throw new Error("InvalidName");
@@ -35,6 +36,7 @@ export async function renamePane(pane: Pane, name: string | null, runtime: Runti
     return;
   }
   const typed = rename.typed;
+  if (session && pane.agent().sessionId() !== session) throw Error("NoConversation");
   if (!typed) throw new Error(agent.session.len ? "RenameUnavailable" : "NoConversation");
   if (!typed.empty(pane.terminal)) throw new Error("AgentBusy");
   if (name === null) return;
@@ -45,6 +47,7 @@ export async function renamePane(pane: Pane, name: string | null, runtime: Runti
   runtime.renames.push({
     pane: pane.id,
     name,
+    session,
     deadline: milliTimestamp() + 2000,
   });
 }
@@ -54,7 +57,7 @@ export async function advance(runtime: Runtime, now: number) {
       pane = runtime.pane(pending.pane),
       provider = pane?.agent().provider,
       typed = provider ? adapter(provider).rename?.typed : null;
-    if (!pane || !typed) {
+    if (!pane || !typed || (pending.session && pane.agent().sessionId() !== pending.session)) {
       runtime.renames.splice(i, 1);
       continue;
     }
@@ -67,12 +70,12 @@ export async function advance(runtime: Runtime, now: number) {
   for (let i = runtime.wanted_names.length - 1; i >= 0; i--) {
     const wanted = runtime.wanted_names[i],
       pane = runtime.pane(wanted.pane);
-    if (!pane) {
+    if (!pane || (wanted.session && pane.agent().sessionId() !== wanted.session)) {
       runtime.wanted_names.splice(i, 1);
       continue;
     }
     try {
-      await renamePane(pane, wanted.name, runtime);
+      await renamePane(pane, wanted.name, runtime, wanted.session);
       runtime.wanted_names.splice(i, 1);
     } catch (e) {
       if (

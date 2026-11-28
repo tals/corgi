@@ -6,6 +6,7 @@ export const info: Info = {
   id: "claude",
   label: "Claude Code",
   name: "Claude",
+  brand: "claude",
   glyph: "*",
   launcher_key: "l",
   command: "claude",

@@ -328,7 +328,7 @@ export class Agent {
     if ((start && !screen_completed) || next === "working" || next === "blocked") this.finished_since_activity = false;
     if (hook.turn && Buffer.byteLength(hook.turn) <= 160) this.setTurn(hook.turn);
     this.last_seq = seq;
-    this.permission_review = event === "permission" && hook.confirm === "screen" ? 0 : null;
+    this.permission_review = hook.confirm === "screen" ? 0 : null;
     this.provider = provider;
     if (session && Buffer.byteLength(session) <= 160) this.session = new Text(session);
     const old = this.state;

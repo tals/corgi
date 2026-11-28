@@ -12,8 +12,7 @@ export { Tokens, max_length } from "./tokens";
 export const capacity = 6;
 export type Command = string;
 export const assignment = (w: string) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(w);
-export function identify(source: string): Provider | null {
-  const t = new Tokens(source);
+function executable(t: Tokens) {
   let w = t.next();
   while (w !== null && assignment(w)) w = t.next();
   if (w === null) return null;
@@ -26,7 +25,18 @@ export function identify(source: string): Provider | null {
       w = t.next();
     }
   }
-  if (w === "command" || w === "exec") w = t.next();
+  return w === "command" || w === "exec" ? t.next() : w;
+}
+/** A literal relative executable belongs to the directory where the user launched it. */
+export function anchorExecutable(source: string, cwd: string): string {
+  const t = new Tokens(source),
+    name = executable(t);
+  if (!name?.includes("/") || /^[/$~`]/.test(name)) return source;
+  return source.slice(0, t.start) + os.shellQuote(cwd.replace(/\/$/, "") + "/") + source.slice(t.start);
+}
+export function identify(source: string): Provider | null {
+  const t = new Tokens(source);
+  let w = executable(t);
   if (w === null) return null;
   const base = basename(w);
   if (base === "bunx") {

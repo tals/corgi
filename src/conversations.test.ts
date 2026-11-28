@@ -84,10 +84,8 @@ test("Codex tools survive snapshots but never leak into another turn", () => {
     request = {
       pane: 0,
       pid: 0,
-      prefix: new Text(),
       actor: 0,
       generation: 0n,
-      title_revision: 0n,
     },
     snap = new Snapshot(request, "01901234-1234-1234-1234-123456789abc", "working");
   snap.turn = new Text("a");
@@ -194,10 +192,8 @@ function snapshot(state: "idle" | "working" | "blocked", at = 1) {
     {
       pane: 0,
       pid: 0,
-      prefix: new Text(),
       actor: 0,
       generation: 0n,
-      title_revision: 0n,
     },
     "01901234-1234-1234-1234-123456789abc",
     state,
@@ -647,7 +643,7 @@ test("child metadata is ordered by the observer's stamp and aged on the daemon c
   const registry = new Registry();
   const session = "01901234-1234-1234-1234-123456789abc";
   const parent = registry.get("codex", session);
-  const snapshot = new Snapshot({ prefix: new Text() } as any, session, "working");
+  const snapshot = new Snapshot({ pane: 0, pid: 0, actor: 0, generation: 0n }, session, "working");
   snapshot.children = [
     Object.assign(new Child(), {
       session: "01901234-1234-1234-1234-123456789abd",

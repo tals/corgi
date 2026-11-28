@@ -26,8 +26,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi account COMMAND         列出、添加、登录或移除服务商账号`,
     '["  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below"]': () =>
       `  corgi action NAME [VALUE] [--viewer ID]  执行下文列出的客户端操作`,
-    '["  corgi agent claude|codex ...   optional discovered-binary launcher"]': () =>
-      `  corgi agent claude|codex ...   可选：启动自动发现的智能体程序`,
+    '["  corgi agent PROVIDER ...      optional discovered-binary launcher"]': () =>
+      `  corgi agent PROVIDER ...      可选：启动自动发现的智能体程序`,
     '["  corgi bugreport [--full]      details for a bug report, and a link to file it"]': () =>
       `  corgi bugreport [--full]      生成问题报告详情和提交链接`,
     '["  corgi checkpoint               save recovery context now"]': () =>
@@ -111,8 +111,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `  corgi usage --json            以 JSON 输出各账号的额度和花费`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            状态变化时以 JSON 行输出智能体状态`,
-    '["  corgi which claude|codex      show automatically selected executable"]': () =>
-      `  corgi which claude|codex      显示自动选择的可执行程序`,
+    '["  corgi which PROVIDER          show automatically selected executable"]': () =>
+      `  corgi which PROVIDER          显示自动选择的可执行程序`,
     '["  corgi workspace archive ID        hibernate panes and hide the workspace"]': () =>
       `  corgi workspace archive ID        休眠窗格并隐藏工作区`,
     '["  corgi workspace close ID          requires an empty workspace"]': () =>
@@ -157,6 +157,9 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Dings muted; attention markers remain on"]': () => ` 提示音已静音；仍会显示提醒标记`,
     '[" Esc done"]': () => ` Esc 完成`,
     '[" Focus pane "]': () => ` 聚焦窗格 `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` 未能开始创建分支。请检查新标签页。`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` 已提交创建分支的请求。请先检查新标签页，再决定是否重试。`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty 集成已关闭。请按 Cmd+Shift+, 重载 Ghostty`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -1498,8 +1501,8 @@ ${v1} 使用该账号。
       `  corgi account COMMAND         提供元のアカウント一覧、追加、ログイン、削除`,
     '["  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below"]': () =>
       `  corgi action NAME [VALUE] [--viewer ID]  下記の名前でビューアー操作を実行`,
-    '["  corgi agent claude|codex ...   optional discovered-binary launcher"]': () =>
-      `  corgi agent claude|codex ...   検出済みの実行ファイルからエージェントを起動`,
+    '["  corgi agent PROVIDER ...      optional discovered-binary launcher"]': () =>
+      `  corgi agent PROVIDER ...      検出済みの実行ファイルからエージェントを起動`,
     '["  corgi bugreport [--full]      details for a bug report, and a link to file it"]': () =>
       `  corgi bugreport [--full]      バグ報告用の情報と報告先リンクを表示`,
     '["  corgi checkpoint               save recovery context now"]': () =>
@@ -1584,8 +1587,8 @@ ${v1} 使用该账号。
       `  corgi usage --json            各アカウントの上限と利用額を JSON で出力`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            エージェントの状態が変わるたびJSON行で出力`,
-    '["  corgi which claude|codex      show automatically selected executable"]': () =>
-      `  corgi which claude|codex      自動選択された実行ファイルを表示`,
+    '["  corgi which PROVIDER          show automatically selected executable"]': () =>
+      `  corgi which PROVIDER          自動選択された実行ファイルを表示`,
     '["  corgi workspace archive ID        hibernate panes and hide the workspace"]': () =>
       `  corgi workspace archive ID        ペインを休止してワークスペースを非表示にする`,
     '["  corgi workspace close ID          requires an empty workspace"]': () =>
@@ -1633,6 +1636,10 @@ ${v1} 使用该账号。
     '[" Dings muted; attention markers remain on"]': () => ` 通知音をミュートしました。要確認マークは表示します`,
     '[" Esc done"]': () => ` Esc 完了`,
     '[" Focus pane "]': () => ` ペインを選択 `,
+    '[" Fork didn\'t start. Check the new tab."]': () =>
+      ` フォークを開始できませんでした。新しいタブを確認してください。`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` フォークを要求しました。再試行する前に新しいタブを確認してください。`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty連携を無効にしました。Cmd+Shift+,で再読み込みしてください`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -3012,8 +3019,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi account COMMAND         제공업체 계정 목록, 추가, 로그인, 제거`,
     '["  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below"]': () =>
       `  corgi action NAME [VALUE] [--viewer ID]  아래에 나열된 클라이언트 동작 실행`,
-    '["  corgi agent claude|codex ...   optional discovered-binary launcher"]': () =>
-      `  corgi agent claude|codex ...   선택 사항: 자동으로 찾은 에이전트 프로그램 실행`,
+    '["  corgi agent PROVIDER ...      optional discovered-binary launcher"]': () =>
+      `  corgi agent PROVIDER ...      선택 사항: 자동으로 찾은 에이전트 프로그램 실행`,
     '["  corgi bugreport [--full]      details for a bug report, and a link to file it"]': () =>
       `  corgi bugreport [--full]      버그 신고 정보와 제출 링크`,
     '["  corgi checkpoint               save recovery context now"]': () =>
@@ -3098,8 +3105,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi usage --json            각 계정의 한도와 사용액을 JSON으로 출력`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            에이전트 상태가 바뀔 때마다 JSON 줄로 출력`,
-    '["  corgi which claude|codex      show automatically selected executable"]': () =>
-      `  corgi which claude|codex      자동 선택된 실행 파일 표시`,
+    '["  corgi which PROVIDER          show automatically selected executable"]': () =>
+      `  corgi which PROVIDER          자동 선택된 실행 파일 표시`,
     '["  corgi workspace archive ID        hibernate panes and hide the workspace"]': () =>
       `  corgi workspace archive ID        창을 최대 절전 모드로 전환하고 작업 공간 숨기기`,
     '["  corgi workspace close ID          requires an empty workspace"]': () =>
@@ -3146,6 +3153,9 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Dings muted; attention markers remain on"]': () => ` 알림음 꺼짐; 알림 표시는 유지됩니다`,
     '[" Esc done"]': () => ` Esc 완료`,
     '[" Focus pane "]': () => ` 패널 포커스 `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` 포크를 시작하지 못했습니다. 새 탭을 확인하세요.`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` 포크를 요청했습니다. 다시 시도하기 전에 새 탭을 확인하세요.`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Ghostty 연동이 꺼졌습니다. Cmd+Shift+,로 Ghostty를 다시 불러오세요`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>
@@ -4523,8 +4533,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi account COMMAND         список, добавление, вход и удаление аккаунтов провайдеров`,
     '["  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below"]': () =>
       `  corgi action NAME [VALUE] [--viewer ID]  выполнить действие клиента из списка ниже`,
-    '["  corgi agent claude|codex ...   optional discovered-binary launcher"]': () =>
-      `  corgi agent claude|codex ...   запустить найденный исполняемый файл агента`,
+    '["  corgi agent PROVIDER ...      optional discovered-binary launcher"]': () =>
+      `  corgi agent PROVIDER ...      запустить найденный исполняемый файл агента`,
     '["  corgi bugreport [--full]      details for a bug report, and a link to file it"]': () =>
       `  corgi bugreport [--full]      сведения об ошибке и ссылка для отправки обращения`,
     '["  corgi checkpoint               save recovery context now"]': () =>
@@ -4610,8 +4620,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi usage --json            вывести лимиты и расходы каждого аккаунта в JSON`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            выводить состояния агентов строками JSON при изменении`,
-    '["  corgi which claude|codex      show automatically selected executable"]': () =>
-      `  corgi which claude|codex      показать автоматически выбранный исполняемый файл`,
+    '["  corgi which PROVIDER          show automatically selected executable"]': () =>
+      `  corgi which PROVIDER          показать автоматически выбранный исполняемый файл`,
     '["  corgi workspace archive ID        hibernate panes and hide the workspace"]': () =>
       `  corgi workspace archive ID        усыпить панели и скрыть рабочее пространство`,
     '["  corgi workspace close ID          requires an empty workspace"]': () =>
@@ -4660,6 +4670,9 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Dings muted; attention markers remain on"]': () => ` Звуки выключены; индикаторы внимания остаются`,
     '[" Esc done"]': () => ` Esc готово`,
     '[" Focus pane "]': () => ` Выбрать панель `,
+    '[" Fork didn\'t start. Check the new tab."]': () => ` Не удалось начать ответвление. Проверьте новую вкладку.`,
+    '[" Fork was submitted. Check the new tab before trying again."]': () =>
+      ` Запрос на ответвление отправлен. Перед повторной попыткой проверьте новую вкладку.`,
     '[" Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` Интеграция с Ghostty отключена. Перезагрузите Ghostty: Cmd+Shift+,`,
     '[" Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,"]': () =>

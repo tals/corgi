@@ -1192,6 +1192,7 @@ export class View {
       fits = ([size, gap]: number[]) => tiles.reduce((sum, t) => sum + width(name(t, size)) + gap, -gap) <= b.w - 6,
       [size, gap] = [
         [0, 3],
+        [0, 1],
         [1, 3],
         [1, 1],
         [2, 1],
