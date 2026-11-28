@@ -4,10 +4,83 @@ import type { Transcript } from "../adapter";
 import { number, str, Text, field, timestampMs } from "../common";
 import { Counts } from "../../usage/tokens";
 import { Tokens } from "../../usage/live";
-import { clip } from "../../activity/tools";
+import { Call, clip, shortPath } from "../../activity/tools";
 import { Text as Summary } from "../../activity/summary";
 import { database, indexStamp } from "./summaries";
 import { directory } from "./config";
+
+const pathKeys = new Set([
+  "Path",
+  "TargetFile",
+  "AbsolutePath",
+  "DirectoryPath",
+  "SearchPath",
+  "SearchDirectory",
+  "file_path",
+  "path",
+]);
+const detailKeys = [
+  "toolSummary",
+  "Description",
+  "description",
+  "CommandLine",
+  "command",
+  "Query",
+  "query",
+  "Pattern",
+  "pattern",
+  "Path",
+  "TargetFile",
+  "AbsolutePath",
+  "DirectoryPath",
+  "SearchPath",
+  "SearchDirectory",
+  "file_path",
+  "path",
+  "Url",
+  "url",
+  "Role",
+  "Action",
+  "Prompt",
+  "prompt",
+] as const;
+
+/** Compact agy transcripts JSON-encode tool argument values as strings. */
+function argText(args: unknown, key: string) {
+  const raw = str(args, key);
+  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "string") return parsed;
+    } catch {}
+  }
+  return raw;
+}
+
+function toolCall(value: unknown, id: bigint) {
+  const name = str(value, "name");
+  if (!name) return null;
+  const call = new Call();
+  call.id = id;
+  call.append(name);
+  const args = field(value, "args");
+  for (const key of detailKeys) {
+    const detail = argText(args, key);
+    if (!detail) continue;
+    call.append(": ");
+    call.detail(pathKeys.has(key) ? shortPath(detail) : detail);
+    break;
+  }
+  return call;
+}
+
+function firstUpdate(text: string) {
+  for (const row of text.split("\n")) {
+    const line = row.replace(/^[ \t\r#*\->`_]+|[ \t\r#*\->`_]+$/g, "");
+    if (line) return line;
+  }
+  return "";
+}
 
 export const path = (root: string, session: string) =>
   join(root, "brain", session, ".system_generated", "logs", "transcript.jsonl");
@@ -29,8 +102,19 @@ export const transcript: Transcript = {
   completion: () => null,
   fallback(r, a) {
     if (r.name.len) a.setName(r.name.text());
+    if (a.state === "working" && !a.activity_inferred && r.update.len && r.update_at > a.activity_at) {
+      a.setActivity(r.update.text());
+      a.activity_at = r.update_at;
+    }
     const p = r.progress;
-    if (a.state !== "working" || !p || p.ended || !p.commentary.len || !p.turn.len || p.turn.text() !== a.turnId())
+    if (
+      a.state !== "working" ||
+      !p ||
+      p.ended ||
+      (!p.commentary.len && !p.evidence.len) ||
+      !p.turn.len ||
+      p.turn.text() !== a.turnId()
+    )
       return false;
     a.activity_generation = Bun.hash.wyhash(a.turnId(), 0n);
     return true;
@@ -83,7 +167,12 @@ export const transcript: Transcript = {
         const delta = new Counts(),
           m = message(v),
           step = number(v, "step_index");
-        if (!m || step === null) return delta;
+        if (step === null) return delta;
+        if (!m) {
+          if (str(v, "source") === "MODEL" && t.progress.turn.len && !t.progress.ended)
+            t.progress.finishId(t.progress.key(String(step)), appended);
+          return delta;
+        }
         t.spoke_at = Math.max(t.spoke_at, stamp ?? 0);
         if (m.role === "user") return delta;
         t.observeModel(v);
@@ -92,11 +181,11 @@ export const transcript: Transcript = {
           output = number(v, "output_tokens");
         if (input !== null && output !== null)
           delta.add(t.tracker.tokensCached(String(step), input + cached, cached, output, false));
-        const calls = field(v, "tool_calls");
-        if (Array.isArray(calls))
-          calls.forEach((_, i) => {
-            delta.tools += t.tracker.tool(step + ":" + i);
-          });
+        const calls = field(v, "tool_calls"),
+          list = Array.isArray(calls) ? calls : [];
+        list.forEach((_, i) => {
+          delta.tools += t.tracker.tool(step + ":" + i);
+        });
         if (appended || (t.catch_up && stamp !== null && stamp >= req.tracked_since)) {
           if (delta.tokens_known)
             t.live.meter.add(
@@ -104,8 +193,29 @@ export const transcript: Transcript = {
               stamp ?? Date.now(),
             );
           t.live.meter.count(delta.tools);
-          if (m.text && t.progress.turn.len) {
-            t.progress.commentary = new Summary(clip(m.text, 2048));
+        }
+        const text = m.text.trim();
+        if (!req.child && text && stamp !== null) {
+          const line = firstUpdate(text);
+          if (line) {
+            t.update = new Text(clip(line, 160));
+            t.update_at = stamp * 1000;
+          }
+        }
+        if (t.progress.turn.len && !t.progress.ended) {
+          // Each tool call's result step follows the planner step in call order.
+          const keys = list.map((_, i) => t.progress.key(String(step + 1n + BigInt(i))));
+          // Any still-pending tool from an earlier planner step finished before this one.
+          for (const open of t.progress.pending)
+            if (open && !keys.includes(open.id)) t.progress.finishId(open.id, appended);
+          list.forEach((value, i) => {
+            const key = keys[i];
+            if (t.progress.seen.includes(key)) return;
+            const call = toolCall(value, key);
+            if (call) t.progress.save(call, appended);
+          });
+          if (appended && text) {
+            t.progress.commentary = new Summary(clip("Latest agent update: " + text, 2048));
             t.progress.dirty = true;
           }
         }
