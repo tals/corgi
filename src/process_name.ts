@@ -2,35 +2,11 @@
 //! tmux's `pane_current_command`, read past interpreters to their script,
 //! and the brand whose mark its tab wears.
 import path from "node:path";
+import { art, type Brand } from "./assets/brand_icons";
+import { Provider, adapter } from "./providers";
+export type { Brand };
 
-export const brands = [
-  "node",
-  "bun",
-  "python",
-  "ruby",
-  "php",
-  "hack",
-  "perl",
-  "r",
-  "vim",
-  "neovim",
-  "git",
-  "docker",
-  "kubernetes",
-  "postgresql",
-  "redis",
-  "rust",
-  "go",
-  "zig",
-  "homebrew",
-  "cmake",
-  "claude",
-  "openai",
-  "tmux",
-  "omp",
-  "opencode",
-] as const;
-export type Brand = (typeof brands)[number];
+export const brands = Object.keys(art) as Brand[];
 export function brand(value: unknown): Brand | null {
   return brands.includes(value as Brand) ? (value as Brand) : null;
 }
@@ -80,19 +56,23 @@ const programs: Record<string, Brand> = {
   ccmake: "cmake",
   ctest: "cmake",
   cpack: "cmake",
-  claude: "claude",
-  codex: "openai",
-  omp: "omp",
-  opencode: "opencode",
-  opencode2: "opencode",
   uv: "python",
   uvx: "python",
   tmux: "tmux",
 };
+function lookup(key: string): Brand | null {
+  if (Object.hasOwn(programs, key)) return programs[key];
+  for (const id of Provider.all) {
+    const info = adapter(id);
+    if (id === key || info.programs.names.includes(key)) return info.brand ?? null;
+  }
+  return null;
+}
 /** The brand a program or provider called `name` wears, if it has one. */
 export function brandOf(name: string): Brand | null {
-  const key = name.toLowerCase();
-  return programs[key] ?? programs[key.replace(/-?[\d.]+$/, "")] ?? null;
+  const key = name.toLowerCase(),
+    plain = key.replace(/-?[\d.]+$/, "");
+  return lookup(key) ?? (key !== plain ? lookup(plain) : null);
 }
 
 /** How an interpreter's command line says what it runs. */

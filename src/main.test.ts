@@ -370,7 +370,7 @@ test("usage errors show the command's help lines", () => {
   expect(failure(["open"], Error("Usage"))).toBe(
     "corgi: usage:\n  corgi open DIR                show DIR's workspace; add one if none\n",
   );
-  expect(failure(["which", "gemini"], Error("Usage"))).toContain("corgi which claude|codex");
+  expect(failure(["which", "gemini"], Error("Usage"))).toContain("corgi which PROVIDER");
   expect(failure(["update", "status", "x"], Error("Usage"))).not.toContain("corgi update auto on|off");
   expect(failure(["update", "bogus"], Error("Usage"))).toContain("corgi update auto on|off");
   expect(failure(["action"], Error("Usage"))).toEndWith(actionNames + "\n");

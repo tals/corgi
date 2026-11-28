@@ -196,7 +196,7 @@ transcripts automatically; no setup needed.
                            workspace holding the current directory
   --max-age 24h|7d|4w|all   Latest message age (default 30d)
   --session PROVIDER:ID    Narrow to a returned conversation, of any age or workspace
-  --provider NAME          codex, claude, pi, omp, opencode2
+  --provider NAME          ${Provider.all.join(", ")}
   --chat ID                Show progress in Corgi prompt chat ID
   --tools                  Calls/results with recorded status and exit code
   -i -S -s -F -w -x        Case, literal, word and line flags, as in rg

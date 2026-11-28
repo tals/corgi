@@ -3,6 +3,7 @@ export const info: Info = {
   id: "omp",
   label: "Oh My Pi",
   name: "omp",
+  brand: "omp",
   glyph: "ϖ",
   command: "omp",
   launcher_key: "h",

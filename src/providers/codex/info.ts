@@ -8,6 +8,7 @@ export const info: Info = {
   id: "codex",
   label: "Codex",
   name: "Codex",
+  brand: "openai",
   glyph: "†",
   launcher_key: "c",
   command: "codex",

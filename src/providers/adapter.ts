@@ -1,3 +1,4 @@
+import type { Brand } from "../assets/brand_icons";
 import type { Progress } from "../startup";
 import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
@@ -374,6 +375,8 @@ export type Info = {
   /** Marks its processes in the resource list. */
   glyph: string;
   launcher_key: string;
+  /** The mark for its tabs and archive entries, when one is available. */
+  brand?: Brand;
   /** The executable a user types to start it. */
   command: string;
   /** False when permission policy belongs to extensions, with no CLI bypass. */
