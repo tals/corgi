@@ -16,11 +16,6 @@ const events = {
 } as const;
 const writes = new Set(["write_to_file", "replace_file_content", "multi_replace_file_content", "notebook_edit"]);
 export function decode(v: unknown): Hook {
-  const reported = str(v, "conversation_id");
-  if (validSession(reported)) {
-    const reading = status.context(v);
-    return reading ? codec.decode({ session_id: reported }, reading) : null;
-  }
   const session = str(v, "conversationId"),
     event = str(v, "hookEventName");
   if (!validSession(session) || !Object.hasOwn(events, event)) return null;

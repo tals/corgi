@@ -26,7 +26,7 @@ test("omp launches, resumes and forks with its own flags", () => {
     "openai-codex/gpt-6-luna",
   ]);
   expect(adapter.launch.resume("unseen-id")).toEqual(["--resume", "unseen-id"]);
-  expect(adapter.launch.fork?.({ session: "id", transcript: "/tmp/a.jsonl", cwd: "/tmp" }, "name")).toEqual({
+  expect(adapter.launch.fork({ session: "id", transcript: "/tmp/a.jsonl", cwd: "/tmp" }, "name")).toEqual({
     args: ["--fork", "/tmp/a.jsonl"],
     session: null,
     named: false,

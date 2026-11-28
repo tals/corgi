@@ -3,12 +3,12 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, openSync, closeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { Text } from "../common";
 import { Snapshot } from "../snapshot";
 import { Stdio } from "../stdio";
 import { Antigravity } from "./headless";
 import { customizations, directory } from "./config";
 import { decode, integration } from "./hooks";
+import { context } from "./status";
 import { catalog } from "./launcher";
 import { entries } from "./history";
 import { database } from "./summaries";
@@ -66,6 +66,23 @@ test("Antigravity hook installation preserves other hooks and explicit disables"
   } finally {
     rmSync(account, { recursive: true, force: true });
   }
+});
+
+test("Antigravity decodes its context percentage independently of lifetime token totals", () => {
+  const report = (used_percentage: number, current_usage: object | null) =>
+    context({
+      conversation_id: session,
+      model: { id: "Gemini" },
+      context_window: { context_window_size: 1048576, used_percentage, total_input_tokens: 900000, current_usage },
+    });
+  expect(report(12.5, { input_tokens: 1000 })).toMatchObject({
+    session,
+    reading: { used: 131072n, window: 1048576n },
+  });
+  expect(report(0, { input_tokens: 0 })?.reading.used).toBe(0n);
+  expect(report(0, null)).toBeNull();
+  expect(report(NaN, null)).toBeNull();
+  expect(report(101, null)).toBeNull();
 });
 
 test("Antigravity installs a silent context reporter alongside the default status and respects user settings", () => {
@@ -126,11 +143,7 @@ test("Antigravity history, child metadata and transcript search use the same con
     expect(entries(root, account, () => false)).toMatchObject([
       { session, cwd: "/tmp/my project", title: "Review", updated_at: 1735689600 },
     ]);
-    const snapshot = new Snapshot(
-      { pane: 1, pid: 1, prefix: new Text(), actor: 0, generation: 1n, title_revision: 0n },
-      session,
-      "idle",
-    );
+    const snapshot = new Snapshot({ pane: 1, pid: 1, actor: 0, generation: 1n }, session, "idle");
     metadata(db, root, snapshot);
     expect(snapshot.children_complete).toBe(true);
     expect(snapshot.children.map(c => [c.session, c.state, c.role.text()])).toEqual([[child, "working", "reviewer"]]);

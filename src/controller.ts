@@ -2587,8 +2587,7 @@ export class Controller {
           await lane.call("session.command", { command });
         } catch (error) {
           if (lost(error)) throw error;
-          if (item === "fork" && errors.is(error, "ForkUnsupported")) opened.hidden.add(item);
-          else if (item !== "rename" || !errors.is(error, "AgentBusy")) opened.off.add(item);
+          if (item !== "rename" || !errors.is(error, "AgentBusy")) opened.off.add(item);
         }
       if (this.menu_pending !== opened || this.tab_menu !== null || !here()) return;
       this.menu_pending = null;

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import type { CommandLine, InteractiveFork } from "../adapter";
+import { basename, dirname, join, resolve } from "node:path";
+import type { CommandLine, ForkSource, PreparedFork } from "../adapter";
 import { field, str } from "../common";
-import { shellQuote } from "../../os";
+import { processArgs, processCwd, shellQuote } from "../../os";
 import { directory, validSession } from "./config";
 import * as scratch from "./private";
 import { rename } from "./screen";
@@ -23,18 +23,18 @@ export function launchSettings(line: Pick<CommandLine, "args" | "cwd">) {
     else if (arg.startsWith("--settings=")) value = arg.slice("--settings=".length);
     else args.push(arg);
   }
+  const original = value;
   if (value !== undefined) {
     if (!value.trimStart().startsWith("{")) value = resolve(line.cwd, value);
     args.push("--settings", value);
   }
-  return { args, value };
+  return { args, value, original };
 }
 
 /** Relay the original title command's stdin and stdout, even after the fork completes. */
-function forkSettings(line: Pick<CommandLine, "args" | "cwd">, account: string, root: string) {
+function forkSettings(value: string | undefined, account: string, root: string) {
   const file = join(directory(account), "settings.json"),
     saved = existsSync(file) ? settings(readFileSync(file, "utf8")) : {},
-    { value } = launchSettings(line),
     overrides =
       value === undefined ? {} : settings(value.trimStart().startsWith("{") ? value : readFileSync(value, "utf8")),
     title = Object.hasOwn(overrides, "title") ? overrides.title : saved.title,
@@ -58,23 +58,47 @@ function idleSession(file: string) {
   }
 }
 
-export function interactiveFork(
-  source: string,
-  line: Pick<CommandLine, "args" | "cwd">,
-  account: string,
-): InteractiveFork {
-  const root = scratch.temporary(),
+const disableUpdates = "AGY_CLI_DISABLE_AUTO_UPDATE";
+/** A saved command can replace the environment that Corgi passes to its shell. */
+function launcherEnablesUpdates(shell: CommandLine) {
+  let value = shell.env.findLast(([key]) => key === disableUpdates)?.[1];
+  const args = basename(shell.args[0] ?? "") === "env" ? shell.args.slice(1) : shell.flagged ? shell.args : [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-i" || arg === "--ignore-environment") value = "";
+    else if (arg.startsWith("--unset=")) {
+      if (arg.slice(8) === disableUpdates) value = "";
+    } else if (arg === "-u" || arg === "--unset") {
+      if (args[++i] === disableUpdates) value = "";
+    } else if (arg.startsWith(disableUpdates + "=")) value = arg.slice(disableUpdates.length + 1);
+    else if (arg !== "--" && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) break;
+  }
+  return value !== undefined && value !== "true";
+}
+
+export function interactiveFork(source: string, launch: ForkSource): PreparedFork {
+  if (launch.shell && launcherEnablesUpdates(launch.shell)) throw Error("ForkLauncherEnablesAutoUpdate");
+  const saved = launchSettings(launch.shell ?? launch),
+    proc = launch.pid > 0 ? processArgs(launch.pid) : null,
+    current = proc?.complete
+      ? launchSettings({ args: proc.argv, cwd: processCwd(launch.pid) ?? launch.cwd }).value
+      : undefined,
+    // A previous fork's last --settings is its temporary reporter. Its saved launcher still has the original.
+    temporary = current && basename(current) === "settings.json" && scratch.temporaryDirectory(dirname(current)),
+    value = (temporary ? undefined : current) ?? saved.value,
+    root = scratch.temporary(),
     file = join(root, "settings.json"),
     state = join(root, "state.json");
   try {
-    writeFileSync(file, JSON.stringify(forkSettings(line, account, root)), { mode: 0o600 });
+    writeFileSync(file, JSON.stringify(forkSettings(value, launch.account, root)), { mode: 0o600 });
   } catch (error) {
     scratch.remove(root);
     throw error;
   }
   return {
+    keep: value !== undefined && value !== saved.original ? ["--settings", value] : [],
     args: ["--settings", file],
-    env: [["AGY_CLI_DISABLE_AUTO_UPDATE", "true"]],
+    env: [[disableUpdates, "true"]],
     close: () => scratch.remove(root),
     async finish(t, live) {
       const { paste, enter } = await import("../../agent_message");

@@ -7,6 +7,7 @@ import { info } from "./info";
 import { home, customizations, directory, identity, validSession } from "./config";
 import { interactiveFork, launchSettings } from "./fork";
 import * as hooks from "./hooks";
+import * as status from "./status";
 import { Watcher, rename } from "./screen";
 import { transcript } from "./transcript";
 import { Worker } from "./observer";
@@ -50,6 +51,7 @@ export const adapter: Adapter = {
     }),
   watch: () => new Watcher(),
   hook: hooks.decode,
+  context: status.context,
   observer: account => new Worker(account),
   launch: {
     options: (args, model, level) => effort.apply("--effort", model ? commandLine.withoutModel(args) : args, level),
@@ -62,7 +64,7 @@ export const adapter: Adapter = {
             args: ["--conversation", session],
             session: null,
             named: false,
-            interactive: (line, account) => interactiveFork(session, line, account),
+            prepare: source => interactiveFork(session, source),
           }
         : null,
     keep: c => {

@@ -3,6 +3,7 @@
 //! they wait here to be caught up instead of being lost.
 import type { Presence } from "./agents";
 import type { Provider } from "./providers";
+import type { Reading } from "./usage/context_window";
 import type { Hook } from "./providers/common";
 
 /** How long a hook waits, in µs; a conversation no pane shows by then isn't open in Corgi. */
@@ -51,5 +52,24 @@ export class HeldHooks {
       while (list.length && now - list[0].at >= max_age) list.shift();
       if (!list.length) this.sessions.delete(key);
     }
+  }
+}
+
+/** A context sample can arrive before its session is selected. Keep only the newest one per session. */
+export class HeldReadings {
+  private items = new Map<string, { reading: Reading; seq: bigint; received: number }>();
+  add(provider: Provider, session: string, reading: Reading, seq: bigint, now: number) {
+    const key = `${provider}\0${session}`,
+      last = this.items.get(key);
+    if (!reading.window || (last && now - last.received < max_age && seq <= last.seq)) return;
+    this.items.delete(key);
+    this.items.set(key, { reading, seq, received: now });
+    if (this.items.size > max_sessions) this.items.delete(this.items.keys().next().value!);
+  }
+  take(provider: Provider, session: string, now: number) {
+    const key = `${provider}\0${session}`,
+      sample = this.items.get(key);
+    this.items.delete(key);
+    return sample && now - sample.received < max_age ? sample : null;
   }
 }

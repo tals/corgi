@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Terminal } from "../../pane/terminal";
 import { Launch } from "../../runtime";
+import { commandLine } from "../../launch/command";
 import { directory } from "./config";
 import { interactiveFork } from "./fork";
 import { rename } from "./screen";
@@ -43,14 +44,12 @@ test("the fork callback preserves launch overrides and the original title after 
     const saved = JSON.stringify({ title: { command: "cat", enabled: true } });
     writeFileSync(join(directory(home), "settings.json"), saved);
     writeFileSync(join(home, "custom settings.json"), '\uFEFF{"editorMode":"vim"}');
-    const fork = interactiveFork(
-      source,
-      {
-        args: ["--settings", '{"editorMode":"default"}', "--settings=custom settings.json"],
-        cwd: home,
-      },
-      home,
-    );
+    const fork = interactiveFork(source, {
+      args: ["--settings", '{"editorMode":"default"}', "--settings=custom settings.json"],
+      cwd: home,
+      account: home,
+      pid: 0,
+    });
     const file = fork.args[1],
       config = JSON.parse(readFileSync(file, "utf8")),
       payload = JSON.stringify({ conversation_id: source, agent_state: "idle" }),
@@ -68,6 +67,20 @@ test("the fork callback preserves launch overrides and the original title after 
     expect(readFileSync(join(directory(home), "settings.json"), "utf8")).toBe(saved);
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a saved shell command cannot enable auto-updates during a fork", () => {
+  for (const cmd of [
+    "AGY_CLI_DISABLE_AUTO_UPDATE=false agy",
+    "env AGY_CLI_DISABLE_AUTO_UPDATE=false agy",
+    "/usr/bin/env AGY_CLI_DISABLE_AUTO_UPDATE=false agy",
+    "env --unset AGY_CLI_DISABLE_AUTO_UPDATE agy",
+    "env -i agy",
+  ]) {
+    expect(() =>
+      interactiveFork(source, { args: [], cwd: "/tmp", pid: 0, account: "", shell: commandLine(cmd, "/tmp") }),
+    ).toThrow("ForkLauncherEnablesAutoUpdate");
   }
 });
 
@@ -92,7 +105,7 @@ test("Antigravity only accepts input at the focused composer", () => {
 
 test("a lost confirmation after Enter never submits /fork a second time", async () => {
   const home = mkdtempSync(join(tmpdir(), "corgi-fork-ack-")),
-    fork = interactiveFork(source, { args: [], cwd: home }, home),
+    fork = interactiveFork(source, { args: [], cwd: home, account: home, pid: 0 }),
     terminal = new Terminal(60, 12),
     input: string[] = [];
   let live = true;

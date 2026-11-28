@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
 import { brand, brandOf, program } from "./process_name";
+import { Provider } from "./providers";
+import * as sim from "./providers/sim";
 
 const name = (argv: string[]) => program(argv).name;
+
+test("a registered provider supplies the brand for its id and executable aliases", () => {
+  const unregister = Provider.register({ ...sim.adapter, brand: "go", programs: { names: ["sim-cli"] } });
+  try {
+    expect(brandOf(sim.adapter.id)).toBe("go");
+    expect(program(["/opt/bin/sim-cli-2.0"]).brand).toBe("go");
+  } finally {
+    unregister();
+  }
+  expect(brandOf("sim-cli")).toBeNull();
+});
 
 test("a program is named as tmux names a window", () => {
   expect(name(["vim", "notes.md"])).toBe("vim");

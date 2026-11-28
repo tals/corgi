@@ -5,9 +5,8 @@
 //! two snakes. Each mark's license is in assets/licenses.txt.
 import { svg } from "./svg" with { type: "macro" };
 import type { Art } from "./svg";
-import type { Brand } from "../process_name";
 
-export const art: Record<Brand, Art> = {
+export const art = {
   node: svg("node"),
   bun: svg("bun"),
   python: svg("python"),
@@ -34,4 +33,6 @@ export const art: Record<Brand, Art> = {
   omp: svg("omp"),
   opencode: svg("opencode"),
   antigravity: svg("antigravity"),
-};
+} satisfies Record<string, Art>;
+
+export type Brand = keyof typeof art;

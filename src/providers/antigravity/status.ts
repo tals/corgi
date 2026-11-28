@@ -4,29 +4,30 @@ import type { IntegrationStepResult } from "../adapter";
 import { field, number, str } from "../common";
 import * as hooksFile from "../hooks_file";
 import { Model } from "../model";
-import { directory } from "./config";
+import { directory, validSession } from "./config";
 
 /** agy's percentage describes the current window. Its total token counters span the whole conversation. */
 export function context(v: unknown) {
+  const session = str(v, "conversation_id");
+  if (!validSession(session)) return null;
   const data = field(v, "context_window"),
     window = number(data, "context_window_size"),
     pct = field(data, "used_percentage");
   if (
-    window === null ||
+    !window ||
     window > BigInt(Number.MAX_SAFE_INTEGER) ||
     typeof pct !== "number" ||
     !Number.isFinite(pct) ||
     pct < 0 ||
-    pct > 100
+    pct > 100 ||
+    (pct === 0 && !field(data, "current_usage"))
   )
     return null;
   const reading = new Reading();
   reading.model = Model.resolve(str(field(v, "model"), "id"));
-  if (field(data, "current_usage") || pct > 0) {
-    reading.window = window;
-    reading.used = BigInt(Math.round((Number(window) * pct) / 100));
-  }
-  return reading;
+  reading.window = window;
+  reading.used = BigInt(Math.round((Number(window) * pct) / 100));
+  return { session, reading };
 }
 
 const command = hooksFile.command("antigravity");

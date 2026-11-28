@@ -17,9 +17,11 @@ const prefix = "corgi-agy-";
 export function temporary() {
   return mkdtempSync(join(tmpdir(), prefix));
 }
+export function temporaryDirectory(root: string) {
+  return dirname(root) === tmpdir() && new RegExp("^" + prefix + "[a-zA-Z0-9]{6}$").test(basename(root));
+}
 export function remove(root: string) {
-  if (dirname(root) === tmpdir() && new RegExp("^" + prefix + "[a-zA-Z0-9]{6}$").test(basename(root)))
-    rmSync(root, { recursive: true, force: true });
+  if (temporaryDirectory(root)) rmSync(root, { recursive: true, force: true });
 }
 /** agy writes every conversation. A private home gives ephemeral clients their own history. */
 export function create(account: string, inference: boolean) {

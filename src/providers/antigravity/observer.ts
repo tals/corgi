@@ -2,8 +2,7 @@ import { Database } from "bun:sqlite";
 import { Path } from "../../bounded_text";
 import type { Runtime } from "../../runtime";
 import type { Observer } from "../adapter";
-import { Child, Name, Role, Snapshot, type Request } from "../snapshot";
-import { Text } from "../common";
+import { Child, Name, Role, Snapshot, type Lost } from "../snapshot";
 import { directory, validSession } from "./config";
 import { database, indexStamp, workspace } from "./summaries";
 import { selected } from "./presence";
@@ -58,9 +57,9 @@ export function metadata(db: Database, root: string, out: Snapshot) {
 export class Worker implements Observer {
   running = false;
   stopping = false;
-  private requests: Request[] = [];
+  private requests: Lost[] = [];
   private results = new Map<number, Snapshot>();
-  private missed = new Map<number, Request>();
+  private missed = new Map<number, Lost>();
   private last = new Map<
     number,
     { generation: bigint; pid: number; session: string; at: number; stamp: string | null }
@@ -83,9 +82,7 @@ export class Worker implements Observer {
         pid: p.detection.pid,
         actor: 0,
         generation: p.attachment.generation,
-        title_revision: 0n,
-        prefix: new Text(p.attachment.actor?.state.sessionId() || ""),
-        identity: "process",
+        session: p.attachment.actor?.state.sessionId() || "",
       }));
     for (const pane of this.last.keys()) if (!this.requests.some(r => r.pane === pane)) this.last.delete(pane);
   }
@@ -108,13 +105,13 @@ export class Worker implements Observer {
           if (
             session === undefined &&
             last?.pid === request.pid &&
-            last.session === request.prefix.text() &&
+            last.session === request.session &&
             now >= last.at &&
             now - last.at < 2 * metadata_ms
           )
             continue;
           this.last.delete(request.pane);
-          if (request.prefix.len) this.missed.set(request.pane, request);
+          if (request.session) this.missed.set(request.pane, request);
           continue;
         }
         this.missed.delete(request.pane);
@@ -124,7 +121,7 @@ export class Worker implements Observer {
           last.generation === request.generation &&
           last.session === session &&
           last.stamp === stamp &&
-          request.prefix.text() === session &&
+          request.session === session &&
           now >= last.at &&
           now - last.at < metadata_ms
         )

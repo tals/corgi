@@ -3,6 +3,7 @@ export const info: Info = {
   id: "opencode2",
   label: "OpenCode",
   name: "OpenCode",
+  brand: "opencode",
   glyph: "o",
   launcher_key: "o",
   command: "opencode",

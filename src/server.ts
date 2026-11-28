@@ -15,7 +15,7 @@ import type { Worker as UsageWorker } from "./usage/worker";
 import { existsSync, readFileSync, renameSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
-import { Runtime, type ForkWait } from "./runtime";
+import { Runtime, type CommandWait } from "./runtime";
 import * as agentEffort from "./agent_effort";
 import { Store, Workspace } from "./workspace";
 import { Client, Reply, type Transport } from "./peer";
@@ -227,7 +227,7 @@ export class Server {
   private context() {
     return { socket: this.socket, executable: this.executable, theme: this.theme };
   }
-  async execute(command: protocol.CommandInput, deferFork?: (task: ForkWait) => void): Promise<protocol.Result> {
+  async execute(command: protocol.CommandInput, defer?: (task: CommandWait) => void): Promise<protocol.Result> {
     importer.admit(this, "session.command");
     const lifecycle =
       "pane.hibernate" in command ||
@@ -235,11 +235,7 @@ export class Server {
       "workspace.unarchive" in command ||
       "pane.wake" in command;
     if (lifecycle) await recovery.save(this.runtime, this.socket);
-    const result = await session.execute(
-      this.runtime,
-      { ...this.context(), deferFork },
-      protocol.decodeCommand(command),
-    );
+    const result = await session.execute(this.runtime, { ...this.context(), defer }, protocol.decodeCommand(command));
     this.bindPanes();
     this.dirty = true;
     await this.saveWorkspaces();
@@ -887,20 +883,20 @@ export class Server {
           this.defer(cl, reply, null, async () => ({ result: await this.message(command) }));
           return;
         }
-        const pending: { fork?: ForkWait } = {},
+        const pending: { task?: CommandWait } = {},
           result = await this.execute(request.payload.command, task => {
-            pending.fork = task;
+            pending.task = task;
           }),
-          fork = pending.fork;
-        if (fork) {
+          task = pending.task;
+        if (task) {
           this.defer(cl, reply, null, async signal => {
-            signal.addEventListener("abort", fork.cancel, { once: true });
+            signal.addEventListener("abort", task.cancel, { once: true });
             try {
-              const error = await fork.done;
+              const error = await task.done;
               if (error) throw Error(error);
               return { result };
             } finally {
-              signal.removeEventListener("abort", fork.cancel);
+              signal.removeEventListener("abort", task.cancel);
             }
           });
         } else reply.ok({ result });

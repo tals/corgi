@@ -78,6 +78,20 @@ supported(
   },
 );
 
+supported("a queued selection cannot attach to a replacement foreground process or provider", async () => {
+  const { server, pane, worker, lock, poll } = fixture();
+  lock(first);
+  await poll();
+  const [snapshot] = worker.take();
+  pane.detection.pid++;
+  expect(observers.snapshotActor(server, "antigravity", snapshot)).toBeNull();
+  pane.detection.pid--;
+  pane.attachment.provisional.provider = "codex";
+  expect(observers.snapshotActor(server, "antigravity", snapshot)).toBeNull();
+  expect(pane.attachment.actor).toBeNull();
+  expect(pane.resume_hint.args()).toBeNull();
+});
+
 supported("Antigravity retries a failed presence inspection before expiring its last known selection", async () => {
   const { root, server, pane, worker, lock, poll } = fixture(),
     at = Date.now(),

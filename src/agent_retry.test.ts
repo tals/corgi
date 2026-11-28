@@ -15,7 +15,6 @@ import {
   settling,
 } from "./agent_retry";
 import { Snapshot, Turn } from "./providers/snapshot";
-import { Text } from "./providers";
 import type { Runtime } from "./runtime";
 import * as codexServer from "./fixtures/codex_server";
 const session = "01a19ea6-a077-75d3-b8dc-54b7dc1279b2",
@@ -38,11 +37,7 @@ function world(account = "") {
 }
 /** What the observer reads of `session`'s latest turn. */
 function snapshot(turn: string, outcome: Snapshot["outcome"], overloaded = outcome === "failed") {
-  const out = new Snapshot(
-    { pane: 1, pid: 7, prefix: new Text(session), actor: 0, generation: 1n, title_revision: 1n },
-    session,
-    outcome ? "idle" : "working",
-  );
+  const out = new Snapshot({ pane: 1, pid: 7, actor: 0, generation: 1n }, session, outcome ? "idle" : "working");
   out.turn = new Turn(turn);
   out.outcome = outcome;
   out.transient_failure_at = overloaded ? wall - 1 : 0;

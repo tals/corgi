@@ -9,7 +9,14 @@ import type { Axis } from "./layout";
 import { Store, Workspace } from "./workspace";
 import { Provider, byProvider, Text, validRef, adapter } from "./providers";
 import { Agent } from "./agents";
-import { Entry, capacity as command_capacity, commandLine, identify, max_length } from "./launch/command";
+import {
+  Entry,
+  anchorExecutable,
+  capacity as command_capacity,
+  commandLine,
+  identify,
+  max_length,
+} from "./launch/command";
 import * as accounts from "./accounts";
 import * as agentOptions from "./agent_options";
 import { Terminal } from "./pane/terminal";
@@ -33,7 +40,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
 import { WantedEffort } from "./agent_effort";
 import * as effort from "./providers/effort";
-import type { InteractiveFork } from "./providers/adapter";
+import type { PreparedFork } from "./providers/adapter";
 import type { HeldStop, Retry } from "./agent_retry";
 export type Create = {
   workspace: number;
@@ -54,7 +61,7 @@ export type Create = {
   socket: string;
   executable: string;
 };
-export type ForkWait = { done: Promise<string | null>; cancel: () => void };
+export type CommandWait = { done: Promise<string | null>; cancel: () => void };
 export const closed_per_workspace = 8;
 export class WantedName {
   static wait_ms = 20000;
@@ -183,6 +190,16 @@ export class Launch {
     chosen.account_env = env;
     chosen.account_provider = provider;
     return chosen;
+  }
+  /** Carries the original launcher into a new pane, including any options it needs after reopening. */
+  withArgs(args: string[], cwd: string): Launch {
+    return Object.assign(
+      new Launch(),
+      this,
+      this.agent
+        ? { agent: { ...this.agent, args: [...(this.agent.args ?? []), ...args], observed: false } }
+        : { command: anchorExecutable(this.typed(args), cwd) },
+    );
   }
   /** The account its `provider` agent runs in, as the variables it sets in
    * `cwd` pick it; "" for the default. */
@@ -1104,60 +1121,51 @@ export class Runtime {
       provider = a.provider;
     if (!provider) throw Error("NoConversation");
     const launch = adapter(provider).launch;
-    if (!launch.fork) throw Error("ForkUnsupported");
     const session = a.sessionId(),
       branch = validRef({ id: session }) ? launch.fork({ session, transcript: a.transcriptPath(), cwd }, name) : null;
     if (!branch) throw Error("NoConversation");
     return { provider, branch };
   }
-  async forkAgent(opts: Create, id: number, wanted: string | null, defer?: (task: ForkWait) => void) {
+  async forkAgent(opts: Create, id: number, wanted: string | null, defer?: (task: CommandWait) => void) {
     const name = wanted === null ? null : wanted.replace(/^ +| +$/g, "");
     if (name !== null && !validName(name)) throw Error("InvalidName");
     const p = this.pane(id);
     if (!p) throw Error("NoPane");
-    const { provider, branch } = Runtime.forkSource(p, name, opts.cwd);
-    let launch = p.launch ?? Launch.observed(provider, p.detection.pid, p.cwd);
-    if (branch.interactive) {
-      const agent = launch.agent ?? Launch.observed(provider, p.detection.pid, p.cwd).agent!,
-        kept = adapter(provider).launch.keep?.({
-          args: [provider, ...(agent.args ?? [])],
-          cwd: p.cwd,
-          flagged: false,
-          env: [],
-        });
-      // Corgi starts this process. Keep the reusable launch on the pane so
-      // observing its argv cannot carry the temporary fork settings into a resume.
-      launch = new Launch({ ...agent, args: kept?.args ?? agent.args, observed: false });
-    }
-    const typed = launch.typed(branch.args, p.resume_hint),
+    const { provider, branch } = Runtime.forkSource(p, name, opts.cwd),
+      original = p.launch ?? Launch.observed(provider, p.detection.pid, p.cwd),
       old = p.terminal.fadedSnapshot(),
       frozen = await this.frozenScreen({ ...opts, cols: p.terminal.cols, rows: p.terminal.rows }, old),
       ws = this.workspaces.owner(id)!,
       sourceTab = ws.model.tabs[ws.model.tabForPane(id)!].id;
-    let interactive: InteractiveFork | undefined;
-    let created: number;
+    let operation: PreparedFork | undefined;
+    let launch = original,
+      created: number;
     try {
-      interactive = branch.interactive?.(
-        { args: launch.agent?.args ?? [], cwd: p.cwd },
-        launch.account(provider, p.cwd),
-      );
-      const run = launch.run(opts.executable, [...branch.args, ...(interactive?.args ?? [])], p.resume_hint),
+      operation = branch.prepare?.({
+        args: original.agent?.args ?? [],
+        shell: original.command ? commandLine(original.command, p.cwd) : undefined,
+        cwd: p.cwd,
+        account: p.account(),
+        pid: p.detection.pid,
+      });
+      if (operation) launch = original.withArgs(operation.keep, p.cwd);
+      const run = launch.run(opts.executable, [...branch.args, ...(operation?.args ?? [])], p.resume_hint),
         forked = {
           ...opts,
           ...run,
-          env: [...(run.env ?? []), ...(interactive?.env ?? [])],
+          env: [...(run.env ?? []), ...(operation?.env ?? [])],
           cols: p.terminal.vt.cols,
           rows: p.terminal.vt.rows,
         };
       created = await this.create(forked);
     } catch (e) {
-      interactive?.close();
+      operation?.close();
       frozen.destroy();
       throw e;
     }
     const fork = this.pane(created)!;
     fork.launch = launch;
-    this.haunt(fork, frozen, old, typed);
+    this.haunt(fork, frozen, old, launch.typed(branch.args, p.resume_hint));
     const pickedName = name ?? p.agent().name.text();
     if (branch.session) {
       try {
@@ -1171,9 +1179,9 @@ export class Runtime {
       }
     } else {
       fork.attachment.provisional.provider = provider;
-      if (!interactive) fork.attachment.provisional.name = new Text(pickedName);
+      if (!operation) fork.attachment.provisional.name = new Text(pickedName);
     }
-    if (!interactive && !branch.named && name)
+    if (!operation && !branch.named && name)
       this.wanted_names.push(new WantedName(created, name, clock.milliTimestamp() + WantedName.wait_ms));
     ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(sourceTab)! + 1);
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
@@ -1191,8 +1199,8 @@ export class Runtime {
         console.warn("placing a fork's row:", error);
       }
     }
-    if (interactive) {
-      const task = this.finishFork(fork, interactive, provider, ws.id, name);
+    if (operation) {
+      const task = this.finishFork(fork, operation, provider, ws.id, name);
       if (defer) defer(task);
       else {
         const error = await task.done;
@@ -1203,11 +1211,11 @@ export class Runtime {
   }
   private finishFork(
     pane: Pane,
-    operation: InteractiveFork,
+    operation: PreparedFork,
     provider: Provider,
     workspace: number,
     name: string | null,
-  ): ForkWait {
+  ): CommandWait {
     const terminal = pane.terminal,
       abort = new AbortController(),
       live = () => !abort.signal.aborted && this.pane(pane.id)?.terminal === terminal && terminal.owner === "runtime";

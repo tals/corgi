@@ -1,6 +1,8 @@
+import type { Brand } from "../assets/brand_icons";
 import type { Progress } from "../startup";
 import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
+import type { Reading } from "../usage/context_window";
 import type { Quit } from "../subprocess";
 import type { Info as Account } from "../usage/account";
 import type { Entry as Session, Store } from "../launch/history";
@@ -11,7 +13,7 @@ import type { Outcome } from "../observation";
 import type { Counts } from "../usage/tokens";
 import type { Tokens } from "../usage/live";
 import type { Request as UsageRequest, Result as UsageResult, Tail as UsageTail } from "../usage/worker";
-import type { Request as ObserverRequest, Snapshot } from "./snapshot";
+import type { Lost, Snapshot } from "./snapshot";
 import type { Runtime } from "../runtime";
 import type { Search } from "./search";
 /** What the launcher shows about a provider. Corgi opens one per launcher
@@ -173,8 +175,8 @@ export interface Observer {
   run(): Promise<void>;
   /** What it saw since the last call. */
   take(): Snapshot[];
-  /** Panes whose title names a session it couldn't find. */
-  takeMissed(): ObserverRequest[];
+  /** Previously selected conversations which their panes have left. */
+  takeMissed(): Lost[];
   stop(): void;
 }
 /** How a provider renames a session. */
@@ -376,6 +378,8 @@ export type Info = {
   /** Marks its processes in the resource list. */
   glyph: string;
   launcher_key: string;
+  /** The mark for its tabs and archive entries, when one is available. */
+  brand?: Brand;
   /** The executable a user types to start it. */
   command: string;
   /** False when permission policy belongs to extensions, with no CLI bypass. */
@@ -418,10 +422,14 @@ export type Fork = {
   session: string | null;
   /** Whether `args` names the fork; if not, core renames it once it shows up. */
   named: boolean;
-  /** Completes a native fork in the new pane's interactive composer. */
-  interactive?(command: Pick<CommandLine, "args" | "cwd">, account: string): InteractiveFork;
+  /** Prepares options for this launch and confirms which session the new pane opened. */
+  prepare?(source: ForkSource): PreparedFork;
 };
-export type InteractiveFork = {
+export type ForkSource = { args: string[]; shell?: CommandLine; cwd: string; pid: number; account: string };
+export type PreparedFork = {
+  /** Additional arguments the original launcher should keep when reopening the child. */
+  keep: string[];
+  /** Arguments and environment used only for this fork. */
   args: string[];
   env: [string, string][];
   finish(terminal: Terminal, live: () => boolean): Promise<string>;
@@ -477,6 +485,8 @@ export interface Adapter extends Info {
   /** Its judge of hooks and screens, for an account ("" for the default). */
   watch(account: string): Watcher;
   hook(v: unknown): Hook;
+  /** A context sample for a session, when the provider reports one separately from its turn events. */
+  context?(v: unknown): { session: string; reading: Reading } | null;
   /** Where a hook comes from, as `corgi hook` reads it inside the agent: the
    * process it runs under, and whether that is a background session rather
    * than its pane's own. Null drops a hook its pane didn't send. */
@@ -520,7 +530,7 @@ export interface Adapter extends Info {
     attach?(session: string, account: string): string[] | null;
     /** Arguments, after the ones it started with, that fork `from` in `cwd`; null
      * while there is nothing to fork yet. */
-    fork?(from: { session: string; transcript: string; cwd: string }, name: string | null): Fork | null;
+    fork(from: { session: string; transcript: string; cwd: string }, name: string | null): Fork | null;
     /** What a resume or fork keeps of a command line someone typed: the
      * account, MCP servers and feature flags it chose. Not its session,
      * prompt, model or permission checks, which the agent reports as they

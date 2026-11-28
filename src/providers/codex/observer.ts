@@ -2,7 +2,7 @@ import * as telemetry from "../../telemetry";
 import path from "node:path";
 import { Path } from "../../bounded_text";
 import { Text, field, str } from "../common";
-import { Child, Name, Role, Snapshot, Turn, type Request } from "../snapshot";
+import { Child, Name, Role, Snapshot, Turn, type Lost, type Request as ObserverRequest } from "../snapshot";
 import type { Observer } from "../adapter";
 import { commandDirectory, configDir, titleSession, writes } from "./index";
 import { Client } from "./socket";
@@ -12,8 +12,24 @@ import * as errors from "../../errors";
 import { Inventory, capacity } from "../../activity/background_tasks";
 import { Text as SummaryText } from "../../activity/summary";
 import type { State } from "../../agents";
-import type { Runtime } from "../../runtime";
+import type { Pane, Runtime } from "../../runtime";
 import type { Location } from "../../worktrees";
+export type Request = ObserverRequest & { prefix: Text; previous?: string };
+export function paneRequest(pane: Pane, prefix: Text, revision: bigint): Request {
+  const pid = pane.detection.pid;
+  return {
+    pane: pane.id,
+    pid,
+    actor: 0,
+    generation: pane.attachment.generation,
+    prefix,
+    previous: pane.attachment.actor?.state.sessionId(),
+    current(pane) {
+      const title = pane.terminal.titleInfo();
+      return title.pid === pid && title.revision === revision && titleSession(title.text)?.text() === prefix.text();
+    },
+  };
+}
 function transcriptPath(value: string) {
   try {
     return Path.init(value);
@@ -265,8 +281,7 @@ export class Worker implements Observer {
   requests: Request[] = [];
   cursor = 0;
   results: Snapshot[] = [];
-  /** Pane requests whose thread the daemon doesn't have, or no daemon to ask. */
-  missed: Request[] = [];
+  missed: Lost[] = [];
   socket: string;
   local: Local;
   timer: ReturnType<typeof setInterval> | null = null;
@@ -299,7 +314,8 @@ export class Worker implements Observer {
   }
   private miss(req: Request) {
     this.missed = this.missed.filter(old => old.pane !== req.pane);
-    this.missed.push(req);
+    if (req.previous && !req.previous.startsWith(req.prefix.text()))
+      this.missed.push({ ...req, session: req.previous });
   }
   reconcile(runtime: Runtime) {
     this.requests = [];
@@ -326,17 +342,8 @@ export class Worker implements Observer {
           prefix: new Text(actor.state.sessionId()),
           actor: actor.id,
           generation: 0n,
-          title_revision: 0n,
         });
-      else
-        this.requests.push({
-          pane: p.id,
-          pid: p.detection.pid,
-          prefix,
-          actor: 0,
-          generation: p.attachment.generation,
-          title_revision: title.revision,
-        });
+      else this.requests.push(paneRequest(p, prefix, title.revision));
       if (this.requests.length === 64) break;
     }
     const actors = runtime.conversations.items,
@@ -365,7 +372,6 @@ export class Worker implements Observer {
         prefix: new Text(actor.state.sessionId()),
         actor: actor.id,
         generation: 0n,
-        title_revision: 0n,
       });
     }
     if (actors.length) this.cursor = (this.cursor + 1) % actors.length;

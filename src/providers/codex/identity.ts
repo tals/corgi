@@ -3,7 +3,8 @@ import path from "node:path";
 import { open } from "node:fs/promises";
 import { Text, str } from "../common";
 import { Path } from "../../bounded_text";
-import { Snapshot, type Request } from "../snapshot";
+import { Snapshot } from "../snapshot";
+import type { Request } from "./observer";
 import { titleSession } from "./index";
 
 type Identity = { session: string; transcript: string; cwd: string };

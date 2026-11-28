@@ -1,6 +1,6 @@
 /** Isolated real Corgi runtime used by the integration scenarios. */
 import { colors } from "../src/palette";
-import { adapter, type Provider } from "../src/providers";
+import { adapter, Provider } from "../src/providers";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXE, ROOT, TestCase, run, sleep, tempDir, quote, versioned, writeExecutable } from "./support";
@@ -159,12 +159,14 @@ export class Runtime extends TestCase {
       // The daemon stops if this process dies before tearing it down.
       CORGI_TEST_OWNER: String(process.pid),
       CORGI_BELL: "off",
+      ...Object.fromEntries(
+        Provider.all.map(id => [
+          `CORGI_${id.toUpperCase()}_BIN`,
+          join(this.temp.name, adapter(id).command + "-not-installed"),
+        ]),
+      ),
       CORGI_CODEX_BIN: fake,
       CORGI_CLAUDE_BIN: fake,
-      CORGI_PI_BIN: join(this.temp.name, "pi-not-installed"),
-      CORGI_OPENCODE2_BIN: join(this.temp.name, "opencode-not-installed"),
-      CORGI_ANTIGRAVITY_BIN: join(this.temp.name, "agy-not-installed"),
-      CORGI_OMP_BIN: join(this.temp.name, "omp-not-installed"),
       // Test builds look for system installs here instead of /usr, /opt and /Applications.
       CORGI_TEST_SYSTEM_ROOT: join(this.temp.name, "system"),
       SHELL: "/bin/sh",
