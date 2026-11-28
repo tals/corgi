@@ -138,20 +138,17 @@ fn attempt(socket: []const u8, head: []const u8, body: []const u8, started: i64)
         .failed => return .refused,
     };
     // A reloading daemon holds the request and answers once the new one has it.
-    var buf: [4096]u8 = undefined;
     // Ok or an error reply means the daemon has the event; a full daemon's
     // 503 doesn't, and it's sent again while a reload holds the lock. The
-    // status line may come in pieces.
-    var status: [status_len]u8 = undefined;
+    // status can arrive in pieces, before the daemon closes the connection.
+    var reply: [4096]u8 = undefined;
     var have: usize = 0;
-    while (have < status.len) {
+    while (have < status_len) {
         const reloading = starting(socket);
         if (!limit(fd, c.SO_RCVTIMEO, started + if (reloading) reload_us else normal_us)) return .{ .timed_out = if (reloading) .reload else .reply };
-        const n = c.read(fd, &buf, buf.len);
+        const n = c.read(fd, reply[have..].ptr, reply.len - have);
         if (n > 0) {
-            const part = @min(status.len - have, @as(usize, @intCast(n)));
-            @memcpy(status[have..][0..part], buf[0..part]);
-            have += part;
+            have += @intCast(n);
             continue;
         }
         if (n < 0) switch (std.posix.errno(n)) {
@@ -160,7 +157,7 @@ fn attempt(socket: []const u8, head: []const u8, body: []const u8, started: i64)
         };
         return .refused;
     }
-    return if (taken(&status)) .delivered else .refused;
+    return if (taken(reply[0..have])) .delivered else .refused;
 }
 
 /// A reply's start, through its status code.

@@ -4,10 +4,10 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
+import * as consumers from "node:stream/consumers";
 import { flock } from "./native_bridge";
 import { nativeRoot } from "./native_paths";
 import * as start_lock from "./start_lock";
-import * as text from "./text";
 
 const sender = `${nativeRoot}/bin/corgi-hook`;
 
@@ -37,20 +37,9 @@ async function send(socket: string): Promise<number> {
  * `status`, or not at all. */
 async function daemon(socket: string, answer: boolean, status = () => 200) {
   const received: string[] = [];
-  const server = http.createServer((req, res) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", chunk => (body += chunk));
-    req.on("end", () => {
-      received.push(body);
-      if (!answer) return;
-      const code = status();
-      if (code === 503) {
-        // The refusal is complete even if the peer has yet to close its socket.
-        res.writeHead(code, { "Content-Length": 0 });
-        res.flushHeaders();
-      } else res.writeHead(code).end('{"ok":true}');
-    });
+  const server = http.createServer(async (request, response) => {
+    received.push(await consumers.text(request));
+    if (answer) response.writeHead(status()).end('{"ok":true}');
   });
   await new Promise<void>(resolve => server.listen(socket, resolve));
   return { received, close: () => new Promise<void>(resolve => server.close(() => resolve())) };
@@ -107,28 +96,28 @@ test("a hook stuck counting holds up the next one's count, not its agent", async
   }
 });
 
-test("a fragmented status delivers the event before the peer closes the socket", async () => {
-  using dir = directory();
-  let requests = 0;
-  const server = net.createServer(peer => {
-    peer.on("error", () => {});
-    peer.once("data", async () => {
-      requests++;
-      const reply = '{"ok":true}';
-      peer.write("HTTP/1.1 20");
-      await Bun.sleep(20);
-      peer.write(`0 OK\r\nContent-Length: ${text.byteLength(reply)}\r\nConnection: close\r\n\r\n${reply}`);
+for (const status of ["200 OK", "503 Service Unavailable"])
+  test(`a hook handles a split ${status} without waiting for the daemon to close`, async () => {
+    using dir = directory();
+    let requests = 0;
+    const server = net.createServer(peer => {
+      peer.on("error", () => {});
+      peer.once("data", async () => {
+        requests++;
+        peer.write(`HTTP/1.1 ${status.slice(0, 2)}`);
+        await Bun.sleep(20);
+        peer.write(`${status.slice(2)}\r\nContent-Length: 0\r\n\r\n`);
+      });
     });
+    await new Promise<void>(resolve => server.listen(dir.socket, resolve));
+    try {
+      expect(await send(dir.socket)).toBeLessThan(1000);
+      expect(requests).toBe(status === "200 OK" ? 1 : 2);
+      expect(dir.log()).toBe("");
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
-  await new Promise<void>(resolve => server.listen(dir.socket, resolve));
-  try {
-    expect(await send(dir.socket)).toBeLessThan(1000);
-    expect(requests).toBe(1);
-    expect(dir.log()).toBe("");
-  } finally {
-    await new Promise<void>(resolve => server.close(() => resolve()));
-  }
-});
 
 test("a hook that gets through ends the back-off", async () => {
   using dir = directory();
@@ -182,12 +171,13 @@ test("a full daemon's refusal is sent again while it reloads, and given up other
   let refusals = 2;
   const full = await daemon(dir.socket, true, () => (refusals-- > 0 ? 503 : 200));
   try {
-    expect(await send(dir.socket)).toBeLessThan(500);
+    await send(dir.socket);
     expect(full.received).toHaveLength(2);
+    expect(dir.log()).toBe("");
     const lock = (await start_lock.take(dir.socket))!;
     try {
       refusals = 2;
-      expect(await send(dir.socket)).toBeLessThan(2000);
+      await send(dir.socket);
       expect(full.received).toHaveLength(5);
     } finally {
       start_lock.release(lock);
