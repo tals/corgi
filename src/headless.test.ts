@@ -317,10 +317,8 @@ test("headless events snapshots and hooks share exactly one receipt regardless o
         {
           pane: 0,
           pid: 0,
-          prefix: new Text(),
           actor: 0,
           generation: 0n,
-          title_revision: 0n,
         },
         identity,
         "idle",

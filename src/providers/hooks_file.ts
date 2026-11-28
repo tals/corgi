@@ -178,7 +178,7 @@ export class File {
   /** Edits the file under Corgi's lock. `change` returns the new text, or
    * null to leave the file as it is. A file linked from dotfiles is edited
    * where it lives, and its backup and Corgi's lock stay beside the link. */
-  private edit(change: (text: string) => string | null, backup: boolean) {
+  edit(change: (text: string) => string | null, backup: boolean) {
     if (!existsSync(this.directory)) return "no_config";
     const path = linkTarget(this.path);
     // Settings that need no change are left untouched, lock file and all.

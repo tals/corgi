@@ -16,11 +16,13 @@ import { Tracker as Tools, View as Progress } from "../activity/tools";
 import { Ended } from "../activity/background_tasks";
 import * as checklist from "../activity/checklist";
 import * as accounts from "../accounts";
-import { max_actors } from "../conversations";
+import { max_actors, type Actor } from "../conversations";
 import { hydrate } from "../persist/checkpoint";
 import { decodeChecklist } from "../protocol";
 export type Request = {
   actor: number;
+  /** Provider account directory, or the default when absent. */
+  account?: string;
   workspace: number;
   since: number;
   agent: Agent;
@@ -192,7 +194,7 @@ export class Tail {
           try {
             const value = parse(this.partial.toString()),
               appended = start_offset + start > this.initial_until,
-              stamp = timestampMs(str(value, "timestamp")),
+              stamp = reader.timestamp ? reader.timestamp(value) : timestampMs(str(value, "timestamp")),
               delta = reader.record(this, req, value, appended, stamp);
             if (appended && stamp !== null && stamp > req.since) found.add(delta);
           } catch {
@@ -355,7 +357,8 @@ export class Worker {
     this.requests = [];
     this.windows.clear();
     const actors = new Set<number>(runtime.conversations.items.map(actor => actor.id)),
-      followed = runtime.followed();
+      accounts = new Map<Actor, string>(),
+      followed = runtime.followed(accounts);
     for (const id of this.watchers.keys()) if (!actors.has(id)) this.watchers.delete(id);
     for (const actor of runtime.conversations.items) {
       const agent = actor.state,
@@ -366,6 +369,7 @@ export class Worker {
       this.windows.set(ws.id, ws.away);
       this.requests.push({
         actor: actor.id,
+        account: accounts.get(actor),
         workspace: ws.id,
         since: ws.away.since,
         agent: agent.snapshot(),
@@ -384,10 +388,11 @@ export class Worker {
     if (this.running || this.stopping || this.pausing) return;
     this.running = true;
     try {
-      for (const reader of this.readers.values()) await reader?.refresh?.();
       const count = Math.min(64, this.requests.length);
       const batch = Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]);
       if (this.requests.length) this.cursor = (this.cursor + count) % this.requests.length;
+      for (const [provider, reader] of this.readers)
+        await reader?.refresh?.(batch.filter(req => req.agent.provider === provider));
       for (const queued of batch) {
         const window = this.windows.get(queued.workspace),
           req = { ...queued, since: window?.since ?? queued.since };
@@ -438,7 +443,7 @@ export class Worker {
         r.live = t.live.meter.view(Date.now());
         r.context = Object.assign(new Reading(), t.context);
         r.progress = t.progress.view();
-        r.name = reader.name?.(req.agent.sessionId()) ?? t.name;
+        r.name = reader.name?.(req.agent.sessionId(), req.account ?? "") ?? t.name;
         r.continued = t.continued;
         r.update = t.update;
         r.update_at = t.update_at;

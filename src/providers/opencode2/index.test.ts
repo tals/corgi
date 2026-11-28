@@ -407,7 +407,7 @@ test("snapshot reports identity, usage, completion and model from the provider",
   try {
     const value = await snapshot(
       new API("unused"),
-      { pane: 0, pid: 0, actor: 1, generation: 0n, title_revision: 0n, prefix: new Text(id) },
+      { pane: 0, pid: 0, actor: 1, generation: 0n, prefix: new Text(id) },
       {},
     );
     expect(value.state).toBe("idle");
@@ -436,7 +436,7 @@ test("a session whose model the catalog lists reports its context window use", a
   try {
     const value = await snapshot(
       new API("unused"),
-      { pane: 0, pid: 0, actor: 1, generation: 0n, title_revision: 0n, prefix: new Text(id) },
+      { pane: 0, pid: 0, actor: 1, generation: 0n, prefix: new Text(id) },
       {},
       new Map([["openai/gpt-5.5", 4000n]]),
     );
@@ -464,7 +464,7 @@ test("terminal catalog metadata keeps variant identity and reaches the conversat
       actor = registry.get("opencode2", id),
       value = await snapshot(
         new API("unused"),
-        { pane: 0, pid: 0, actor: actor.id, generation: 0n, title_revision: 0n, prefix: new Text(id) },
+        { pane: 0, pid: 0, actor: actor.id, generation: 0n, prefix: new Text(id) },
         {},
         new Map(),
         models,

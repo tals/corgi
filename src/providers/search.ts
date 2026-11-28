@@ -127,7 +127,7 @@ export type Transcripts = Pick<Search, "version" | "home" | "env"> & {
   reportsText?(call: string): boolean;
 };
 /** Decodes a transcript one JSONL line at a time, numbering lines on from `from`. */
-function decoder(spec: Transcripts, withTools: boolean, from = 0) {
+function decoder(spec: Messages, withTools: boolean, from = 0) {
   const messages: Message[] = [],
     records: ToolRecord[] = [];
   let line = from,
@@ -331,6 +331,16 @@ export function transcripts(spec: Transcripts): Search & { jsonl(input: string, 
       await Promise.all(Array.from({ length: 32 }, check));
       return found.filter((f): f is Found => f !== null);
     },
+    ...transcriptMessages(spec),
+  };
+}
+
+type Messages = Pick<Transcripts, "messages" | "tools" | "title" | "reportsText">;
+/** JSONL message decoding also serves providers whose session index supplies identity. */
+export function transcriptMessages(
+  spec: Messages,
+): Pick<Search, "read" | "readOn"> & { jsonl(input: string, tools?: boolean): Normalized } {
+  return {
     /** Streamed: some transcripts run to hundreds of megabytes. */
     async read(found, withTools) {
       const compressed = found.source.endsWith(".jsonl.zst"),

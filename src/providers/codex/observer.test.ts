@@ -178,10 +178,13 @@ test("an ephemeral thread reads as one without listing its turns", async () => {
 test("with no Codex daemon to ask, pane requests are missed and conversation requests wait", async () => {
   const worker = new Worker();
   worker.socket = path.join(tmpdir(), `corgi-no-codex-${process.pid}.sock`);
-  const pane = { pane: 1, pid: 42, prefix: new Text("11111111"), actor: 0, generation: 1n, title_revision: 1n };
+  const pane = { pane: 1, pid: 42, prefix: new Text("11111111"), actor: 0, generation: 1n, previous: "old" };
   worker.requests = [pane, { ...pane, pane: 0, pid: 0, actor: 7 }];
   await worker.run();
-  expect(worker.takeMissed()).toEqual([pane]);
+  expect(worker.takeMissed()).toEqual([{ ...pane, session: "old" }]);
+  worker.requests = [{ ...pane, previous: "11111111-existing" }];
+  await worker.run();
+  expect(worker.takeMissed()).toEqual([]);
   expect(worker.take()).toEqual([]);
 });
 test("a turn's evidence leads with the latest agent message", () => {

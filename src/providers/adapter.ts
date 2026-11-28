@@ -2,6 +2,7 @@ import type { Brand } from "../assets/brand_icons";
 import type { Progress } from "../startup";
 import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
+import type { Reading } from "../usage/context_window";
 import type { Quit } from "../subprocess";
 import type { Info as Account } from "../usage/account";
 import type { Entry as Session, Store } from "../launch/history";
@@ -12,7 +13,7 @@ import type { Outcome } from "../observation";
 import type { Counts } from "../usage/tokens";
 import type { Tokens } from "../usage/live";
 import type { Request as UsageRequest, Result as UsageResult, Tail as UsageTail } from "../usage/worker";
-import type { Request as ObserverRequest, Snapshot } from "./snapshot";
+import type { Lost, Snapshot } from "./snapshot";
 import type { Runtime } from "../runtime";
 import type { Search } from "./search";
 /** What the launcher shows about a provider. Corgi opens one per launcher
@@ -151,15 +152,17 @@ export interface Transcript {
   reader(accounts: () => string[]): TranscriptReader;
 }
 export interface TranscriptReader {
-  /** Runs once a pass, before any transcript is read. */
-  refresh?(): Promise<void>;
+  /** The time of a record when the provider uses its own timestamp field. */
+  timestamp?(value: unknown): number | null;
+  /** Runs before the worker reads this pass's followed sessions for this provider. */
+  refresh?(requests: readonly UsageRequest[]): Promise<void>;
   /** Readies `t` for a file it just opened; `head` is the file's first record. */
   open(t: UsageTail, req: UsageRequest, head: unknown, catch_up: boolean): void;
   /** Folds one record into `t`; the tokens and tools it counted. */
   record(t: UsageTail, req: UsageRequest, value: any, appended: boolean, stamp: number | null): Counts;
   /** A session's name, when it comes from somewhere besides its transcript:
    * Corgi then follows the session even without one. */
-  name?(session: string): Text;
+  name?(session: string, account: string): Text;
   close?(): void;
 }
 /** Watches a provider's conversations over its own protocol, for what its
@@ -172,8 +175,8 @@ export interface Observer {
   run(): Promise<void>;
   /** What it saw since the last call. */
   take(): Snapshot[];
-  /** Panes whose title names a session it couldn't find. */
-  takeMissed(): ObserverRequest[];
+  /** Previously selected conversations which their panes have left. */
+  takeMissed(): Lost[];
   stop(): void;
 }
 /** How a provider renames a session. */
@@ -470,6 +473,8 @@ export interface Adapter extends Info {
   /** Its judge of hooks and screens, for an account ("" for the default). */
   watch(account: string): Watcher;
   hook(v: unknown): Hook;
+  /** A context sample for a session, when the provider reports one separately from its turn events. */
+  context?(v: unknown): { session: string; reading: Reading } | null;
   /** Where a hook comes from, as `corgi hook` reads it inside the agent: the
    * process it runs under, and whether that is a background session rather
    * than its pane's own. Null drops a hook its pane didn't send. */

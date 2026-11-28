@@ -1,5 +1,7 @@
 import * as background_tasks from "./activity/background_tasks";
 import * as breadcrumbs from "./breadcrumbs";
+import * as clock from "./clock";
+import { HeldReadings } from "./held_hooks";
 import * as checklist from "./activity/checklist";
 import { Conversation, hash } from "./activity/summary";
 import { Timeline } from "./activity/timeline";
@@ -49,6 +51,7 @@ export class Actor {
   shells = new background_tasks.Shells();
   live_usage = new View();
   context = new Reading();
+  private context_report_seq = 0n;
   headless_meter = new Counter();
   usageView(now: number) {
     return this.headless_usage ? this.headless_meter.meter.view(now) : this.live_usage;
@@ -84,6 +87,16 @@ export class Actor {
   observeChecklist(list: checklist.List) {
     if (list.at >= this.checklist.at) this.checklist = list;
   }
+  /** A transcript or snapshot timestamps its sample in ms; hooks can distinguish writes within a millisecond. */
+  observeContext(reading: Reading, stamp?: bigint) {
+    const at = stamp === undefined ? reading.at : Number(stamp / 1000n);
+    if (!reading.window || !Number.isSafeInteger(at) || at < this.context.at) return false;
+    if ((stamp ?? BigInt(at) * 1000n) <= this.context_report_seq) return false;
+    if (stamp !== undefined) this.context_report_seq = stamp;
+    reading.at = at;
+    this.context = reading;
+    return true;
+  }
   observeTaskEnds(ended: background_tasks.Ended) {
     this.shells.drop(ended);
     if (!this.state.paused || this.paused_for_wakeup || this.shells.len) return false;
@@ -109,6 +122,7 @@ export class Actor {
       if (snapshot.transcript.len && !a.transcript.len) a.transcript = snapshot.transcript;
       if (snapshot.cwd.len && !a.cwd.len) a.cwd = snapshot.cwd;
       if (snapshot.name.len && !a.name.len) a.name = snapshot.name;
+      if (snapshot.children_complete) a.subagents = snapshot.subagents;
       return false;
     }
     if (snapshot.observed_at <= a.last_seq) return false;
@@ -136,7 +150,7 @@ export class Actor {
         Math.floor(now / 1000),
       );
     }
-    if (snapshot.context) this.context = snapshot.context;
+    if (snapshot.context) this.observeContext(snapshot.context);
     if (snapshot.location) worktrees.recordLocation(a, snapshot.location);
     this.observed_at = Math.max(this.observed_at, snapshot.observed_at);
     this.background_tasks = snapshot.background_tasks;
@@ -329,6 +343,7 @@ export class Attachment {
 }
 export class Registry {
   items: Actor[] = [];
+  pending_context = new HeldReadings();
   compaction_points = new Points();
   next_id: ActorId = Actor.Id.first;
   find(provider: Provider, session: string) {
@@ -348,6 +363,8 @@ export class Registry {
       state: new Agent({ provider, session: new Text(session) }),
     });
     actor.tracked_since = Date.now();
+    const sample = this.pending_context.take(provider, session, clock.microTimestamp());
+    if (sample) actor.observeContext(sample.reading, sample.seq);
     this.items.push(actor);
     this.next_id = Actor.Id.next(this.next_id);
     return actor;

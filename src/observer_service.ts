@@ -15,7 +15,7 @@ import type { Server } from "./server";
 import { Launch, type Runtime, type Pane } from "./runtime";
 import type { Text } from "./providers";
 import type { Known, Observer, Watcher } from "./providers/adapter";
-import type { Snapshot, Request as ObserverRequest } from "./providers/snapshot";
+import type { Snapshot, Lost, Request as ObserverRequest } from "./providers/snapshot";
 import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 import * as accounts from "./accounts";
@@ -145,33 +145,27 @@ function attention(server: Server, ding: boolean, state: string) {
   server.attention(ding, state);
 }
 
-/** The pane, when it still shows the title session `request` asked about. */
-function titled(runtime: Runtime, provider: Provider, request: ObserverRequest) {
+/** Keep delayed results on the pane and attachment the observer actually read. */
+function observedPane(runtime: Runtime, provider: Provider, request: ObserverRequest) {
   const pane = runtime.pane(request.pane);
   if (
     !pane ||
     pane.terminal.exited ||
+    pane.detection.claim ||
     pane.detection.missing ||
     pane.detection.pid !== request.pid ||
-    pane.attachment.generation !== request.generation
-  )
-    return null;
-  const title = pane.terminal.titleInfo(),
-    prefix = adapter(provider).titleSession?.(title.text);
-  if (
-    !prefix ||
-    title.pid !== request.pid ||
-    title.revision !== request.title_revision ||
-    prefix.text() !== request.prefix.text()
+    pane.agent().provider !== provider ||
+    pane.attachment.generation !== request.generation ||
+    request.current?.(pane) === false
   )
     return null;
   return pane;
 }
-/** The conversation an observer's snapshot is of, shown in the pane whose title named it. */
+/** The conversation an observer found, either followed directly or selected in a pane. */
 export function snapshotActor(server: Server, provider: Provider, snapshot: Snapshot) {
   const runtime = server.runtime;
   if (snapshot.request.actor) return runtime.conversations.byId(snapshot.request.actor);
-  const pane = titled(runtime, provider, snapshot.request);
+  const pane = observedPane(runtime, provider, snapshot.request);
   if (!pane) return null;
   // A side conversation leaves the pane on the conversation it forked.
   if (snapshot.ephemeral) {
@@ -181,17 +175,18 @@ export function snapshotActor(server: Server, provider: Provider, snapshot: Snap
   const actor = runtime.conversations.get(provider, snapshot.session);
   // The snapshot, applied next, speaks for the hooks sent before it was read.
   show(server, pane, actor, snapshot.lifecycle ? BigInt(snapshot.observed_at) : 0n);
+  pane.resume_hint.observe(actor.state);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
 }
-/** The observer can't see the thread the title moved to, so the pane no
- * longer shows a conversation it knows. */
-export function missed(server: Server, provider: Provider, request: ObserverRequest) {
-  const pane = titled(server.runtime, provider, request),
-    actor = pane?.attachment.actor;
-  if (!pane || !actor || pane.attachment.side || actor.state.sessionId().startsWith(request.prefix.text())) return;
+/** Detach only the specific selection the observer saw the pane leave. */
+export function missed(server: Server, provider: Provider, loss: Lost) {
+  const pane = observedPane(server.runtime, provider, loss);
+  if (!pane || pane.attachment.side || pane.attachment.actor?.state.sessionId() !== loss.session) return;
   pane.attachment.deselect();
+  pane.attachment.provisional.provider = provider;
+  pane.resume_hint = new ResumeHint();
   changed(server);
 }
 /** The one known conversation whose session the title names. */
@@ -333,7 +328,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
         state: actor.state.state,
         authoritative,
         pending_stop: actor.state.observation.pending_stop,
-        permission_review: !!actor.state.permission_review,
+        permission_review: actor.state.permission_review !== null,
         prompt: actor.prompt_watch,
       },
       seen = watcher(workers, judge, pane.account()).read(view, pane.detection, known, now);
@@ -344,7 +339,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
       if (actor.state.state === "working") actor.observeCompactionScreen(seen.compacting, now);
       if (seen.interrupted) actor.state.abandonTurn(now);
       if (seen.answered) actor.state.observeAnswer(seen.answered, now);
-      if (actor.state.permission_review)
+      if (actor.state.permission_review !== null)
         ding = actor.state.observePermissionPrompt(seen.prompt === true, watched, now) || ding;
     }
   }
@@ -362,18 +357,30 @@ function found(server: Server, provider: Provider, pid: number) {
   void import("./launch_service").then(l => l.agentRan(server, provider, pid)).catch(() => {});
 }
 export function hook(server: Server, query: Request<"hook">) {
-  found(server, query.provider, query.pid);
   const workers = start(server),
-    runtime = server.runtime;
-  const event = adapter(query.provider).hook(query.event);
+    runtime = server.runtime,
+    source = adapter(query.provider),
+    now = clock.microTimestamp(),
+    seq = query.seq ?? BigInt(now),
+    sample = source.context?.(query.event);
+  if (sample) {
+    if (!query.background && runtime.pane(query.pane)?.detection.claim) return;
+    const actor = runtime.conversations.find(query.provider, sample.session);
+    if (actor) {
+      if (actor.observeContext(sample.reading, seq)) changed(server);
+    } else if (!query.background)
+      runtime.conversations.pending_context.add(query.provider, sample.session, sample.reading, seq, now);
+    return;
+  }
+  found(server, query.provider, query.pid);
+  const event = source.hook(query.event);
   if (!event) return;
-  const now = clock.microTimestamp(),
-    known = runtime.conversations.find(query.provider, event.session),
+  const known = runtime.conversations.find(query.provider, event.session),
     held: Held = {
       provider: query.provider,
       pid: query.pid,
       event,
-      seq: query.seq ?? BigInt(now),
+      seq,
       at: now,
       presence: known && runtime.attachments(known) > 0 ? "attached" : query.background ? "detached" : "attaching",
     };
@@ -432,7 +439,7 @@ function applyUsage(server: Server, workers: Workers) {
     if (result.checklist) actor.observeChecklist(result.checklist);
     if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
     if (!actor.headless_usage) actor.live_usage = result.live;
-    actor.context = result.context;
+    actor.observeContext(result.context);
     runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
     const continuation = adapter(actor.provider()).transcript?.continuation;
     if (result.continued.len && continuation && result.continued.text() !== actor.state.sessionId()) {
@@ -530,8 +537,9 @@ export async function tick(server: Server) {
           actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp(), retry_at > 0),
           actor.state.state,
         );
-        if (snapshot.lifecycle) {
+        if (snapshot.lifecycle || snapshot.children_complete)
           runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
+        if (snapshot.lifecycle) {
           workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
         }
         changed(server);

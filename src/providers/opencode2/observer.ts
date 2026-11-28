@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { Observer } from "../adapter";
 import type { Runtime } from "../../runtime";
-import { Child, Name, Role, Snapshot, Turn, type Request } from "../snapshot";
+import { Child, Name, Role, Snapshot, Turn, type Request as ObserverRequest } from "../snapshot";
 import { Path } from "../../bounded_text";
 import { Text, field, str } from "../common";
 import { Failure } from "../../failure";
@@ -12,6 +12,7 @@ import * as activity from "./activity";
 import { Model } from "../model";
 import { Reading } from "../../usage/context_window";
 import * as modelCatalog from "./catalog";
+type Request = ObserverRequest & { prefix: Text };
 const log = getLogger("opencode2.observer");
 export async function snapshot(
   api: API,
@@ -159,7 +160,6 @@ export class Worker implements Observer {
         actor: a.id,
         prefix: new Text(a.state.sessionId()),
         generation: 0n,
-        title_revision: 0n,
       }));
     const tracked = new Set(this.requests.map(r => r.prefix.text()));
     for (const session of tracked) if (!known.has(session)) this.due.add(session);

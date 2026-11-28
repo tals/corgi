@@ -3,9 +3,11 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { Server } from "./server";
 import { Pane, Launch } from "./runtime";
 import { Terminal } from "./pane/terminal";
-import { Worker } from "./providers/codex/observer";
+import { paneRequest, Worker } from "./providers/codex/observer";
 import { Snapshot, Turn } from "./providers/snapshot";
 import { Text } from "./providers/common";
+import { Provider } from "./providers";
+import * as sim from "./providers/sim";
 import { Path } from "./bounded_text";
 import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
@@ -14,6 +16,8 @@ import * as agents from "./agents";
 import * as launch_service from "./launch_service";
 import { Result as UsageResult } from "./usage/worker";
 import { Counts } from "./usage/tokens";
+import { Reading } from "./usage/context_window";
+import { per_session } from "./held_hooks";
 import { Workspace } from "./workspace";
 import {
   snapshotActor,
@@ -67,6 +71,7 @@ function fixture() {
   terminal.title_revision = 1n;
   const pane = new Pane(1, terminal, "/tmp");
   pane.detection.pid = 42;
+  pane.attachment.provisional.provider = "codex";
   server.runtime.panes.push(pane);
   afterEach(() => {
     stop(server);
@@ -81,7 +86,7 @@ test("Codex title observation reads current identity once per reconciliation", (
   const worker = new Worker();
   worker.reconcile(server.runtime);
   expect(terminal.titleReads).toBe(1);
-  expect(worker.requests).toMatchObject([{ pane: 1, pid: 42, title_revision: 1n }]);
+  expect(worker.requests).toMatchObject([{ pane: 1, pid: 42 }]);
   expect(worker.requests[0].prefix.text()).toBe(id);
   terminal.title_pid = 41;
   worker.reconcile(server.runtime);
@@ -91,7 +96,7 @@ test("Codex title observation reads current identity once per reconciliation", (
   terminal.title = "22222222-2222-4222-8222-222222222222";
   worker.reconcile(server.runtime);
   expect(terminal.titleReads).toBe(3);
-  expect(worker.requests).toMatchObject([{ title_revision: 3n }]);
+  expect(worker.requests[0].current?.(pane)).toBe(true);
   expect(worker.requests[0].prefix.text()).toBe(terminal.title);
 });
 
@@ -356,18 +361,7 @@ test("Codex claims cannot reattach local conversation identity from a remote tit
 
 test("Codex selection rejects delayed ABA observations while detached actors remain addressable", () => {
   const { server, pane, terminal, registry } = fixture();
-  const snapshot = new Snapshot(
-    {
-      pane: 1,
-      pid: 42,
-      actor: 0,
-      prefix: new Text(id),
-      generation: pane.attachment.generation,
-      title_revision: terminal.title_revision,
-    },
-    id,
-    "working",
-  );
+  const snapshot = new Snapshot(paneRequest(pane, new Text(id), terminal.title_revision), id, "working");
   const actor = snapshotActor(server, "codex", snapshot)!;
   snapshot.request.generation = pane.attachment.generation;
   terminal.title = `codex | ${id} | Working`;
@@ -379,7 +373,7 @@ test("Codex selection rejects delayed ABA observations while detached actors rem
   terminal.title = id;
   terminal.title_revision = terminal.title_revision + 2n;
   expect(snapshotActor(server, "codex", snapshot)).toBeNull();
-  snapshot.request.title_revision = terminal.title_revision;
+  snapshot.request = paneRequest(pane, new Text(id), terminal.title_revision);
   expect(snapshotActor(server, "codex", snapshot)).toBe(actor);
   snapshot.request.actor = actor.id;
   pane.attachment.detach();
@@ -433,14 +427,7 @@ test("a Codex side conversation in the title leaves the pane on the conversation
     terminal.title_revision++;
     retitled(server.runtime, pane, "codex", codex.titleSession(terminal.title));
   };
-  const request = () => ({
-    pane: 1,
-    pid: 42,
-    actor: 0,
-    prefix: codex.titleSession(terminal.title)!,
-    generation: pane.attachment.generation,
-    title_revision: terminal.title_revision,
-  });
+  const request = () => paneRequest(pane, codex.titleSession(terminal.title)!, terminal.title_revision);
   const observe = (session: string, ephemeral: boolean) => {
     const snapshot = new Snapshot(request(), session, "idle");
     snapshot.ephemeral = ephemeral;
@@ -456,7 +443,7 @@ test("a Codex side conversation in the title leaves the pane on the conversation
   const worker = new Worker();
   worker.reconcile(server.runtime);
   expect(worker.requests.map(r => [r.pane, r.actor, r.prefix.text()])).toEqual([[0, main.id, id]]);
-  missed(server, "codex", request());
+  missed(server, "codex", { ...request(), session: pane.agent().sessionId() });
   expect(pane.attachment.actor).toBe(main);
 
   show(id);
@@ -474,7 +461,7 @@ test("a Codex side conversation in the title leaves the pane on the conversation
   // So does no conversation, when the daemon doesn't have the thread.
   show(gone);
   expect(pane.attachment.actor).toBe(main);
-  missed(server, "codex", request());
+  missed(server, "codex", { ...request(), session: pane.agent().sessionId() });
   expect(pane.attachment.actor).toBeNull();
 });
 
@@ -518,16 +505,58 @@ test("transcript checklists cannot replace newer hooks and stay with their own c
   expect(actor.checklist.items).toEqual([]);
 });
 
+test("meter samples keep their own order across hooks and transcripts", async () => {
+  afterEach(
+    Provider.register({
+      ...sim.adapter,
+      context: v => (v instanceof Reading ? { session: id, reading: v } : null),
+    }),
+  );
+  const { server, registry, pane } = fixture();
+  pane.detection.pid = 0;
+  pane.attachment.select(registry.get(sim.sim, "other"));
+  const send = (seq: bigint, event: object) =>
+    hook(server, { provider: sim.sim, pane: 1, pid: 0, background: false, seq, event });
+  const reading = (used: bigint, at = 0) => Object.assign(new Reading(), { used, window: 100n, at });
+  send(3000n, { session_id: id, hook_event_name: "UserPromptSubmit" });
+  for (let i = 0; i <= per_session; i++) send(4000n + BigInt(i), reading(20n));
+  send(5020n, reading(25n));
+  send(5010n, reading(50n));
+  expect(pane.attachment.hook_seq).toBe(0n);
+  expect(registry.find(sim.sim, id)).toBeNull();
+  const selection = new Snapshot(
+    { pane: pane.id, pid: 0, generation: pane.attachment.generation, actor: 0 },
+    id,
+    "idle",
+  );
+  selection.lifecycle = false;
+  const actor = snapshotActor(server, sim.sim, selection)!;
+  expect(actor.context.used).toBe(25n);
+  expect(actor.state.state).toBe("working");
+  expect(actor.state.last_seq).toBe(3000n);
+  const poll = async (sample: Reading) => {
+    const result = new UsageResult();
+    result.actor = actor.id;
+    result.context = sample;
+    start(server).usage.results.push(result);
+    await pause(server);
+  };
+  await poll(new Reading());
+  await poll(reading(60n, 5));
+  expect(actor.context.used).toBe(25n);
+  await poll(reading(10n, 7));
+  await poll(reading(12n, 7));
+  send(6999n, reading(80n));
+  expect(actor.context.used).toBe(12n);
+  send(7001n, reading(11n));
+  expect(actor.context.used).toBe(11n);
+  await poll(reading(13n, 7));
+  expect(actor.context.used).toBe(11n);
+});
+
 test("local Codex identity attaches without lifecycle authority and admits only matching hooks", () => {
   const { server, pane, terminal, registry } = fixture();
-  const request = {
-    pane: 1,
-    pid: 42,
-    actor: 0,
-    prefix: new Text(id),
-    generation: pane.attachment.generation,
-    title_revision: terminal.title_revision,
-  };
+  const request = paneRequest(pane, new Text(id), terminal.title_revision);
   const identity = new Snapshot(request, id, "unknown");
   identity.lifecycle = false;
   identity.transcript = new Path("/tmp/rollout.jsonl");
@@ -625,18 +654,7 @@ test("hooks sent before a pane knows its Codex conversation catch it up once it 
   expect(registry.find("codex", id)).toBeNull();
   expect(start(server).held.size).toBe(1);
   detect("Working (esc to interrupt)");
-  const identity = new Snapshot(
-    {
-      pane: 1,
-      pid: 42,
-      actor: 0,
-      prefix: new Text(id),
-      generation: pane.attachment.generation,
-      title_revision: terminal.title_revision,
-    },
-    id,
-    "unknown",
-  );
+  const identity = new Snapshot(paneRequest(pane, new Text(id), terminal.title_revision), id, "unknown");
   identity.lifecycle = false;
   const actor = snapshotActor(server, "codex", identity)!;
   expect(actor.state).toMatchObject({ state: "working", last_seq: 1n, observation: { source: "hook" } });
@@ -672,14 +690,7 @@ function untitled() {
       });
     },
     snapshot(state: "idle" | "unknown") {
-      const request = {
-        pane: 1,
-        pid: 42,
-        actor: 0,
-        prefix: new Text(id),
-        generation: pane.attachment.generation,
-        title_revision: terminal.title_revision,
-      };
+      const request = paneRequest(pane, new Text(id), terminal.title_revision);
       return new Snapshot(request, id, state);
     },
   };
