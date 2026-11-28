@@ -13,11 +13,14 @@ export const Group = {
 };
 export type Task = { id: Text; label: Text; group: Group };
 export function classify(command: string): Group {
-  const words = command.trim().split(/\s+/),
-    exe = path.basename(words.shift() ?? "");
+  const words = command.trim().split(/\s+/);
+  // Environment assignments before the command, as in `JOBS=4 bun test`.
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? "")) words.shift();
+  const exe = path.basename(words.shift() ?? "");
   if (["pytest", "jest", "vitest"].includes(exe)) return "tests";
   for (let i = 0; i < 2; i++) {
-    const w = words.shift();
+    // A package script's variant, as in `bun run test:unit`, keeps its kind.
+    const w = words.shift()?.split(":")[0];
     if (!w) break;
     if (w === "test" || (w === "pytest" && exe.startsWith("python"))) return "tests";
     if (w === "build") return words.shift() === "test" ? "tests" : "builds";

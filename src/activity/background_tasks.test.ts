@@ -27,6 +27,10 @@ test("provider tasks retain identity, descriptions and bounded categories", () =
     ["python3 -m pytest tests", "tests"],
     ["python3 -m http.server 8000", "servers"],
     ["echo 'test server'", "commands"],
+    ["JOBS=4 CI=1 bun run test:parallel", "tests"],
+    ["bun run build:release", "builds"],
+    ["PORT=3000 npm run dev:web", "servers"],
+    ["FOO=bar", "commands"],
   ] as const)
     expect(classify(command)).toBe(group);
   for (let i = 0; i < capacity + 1; i++) inventory.append(`task-${i}`, "Build", "bun run build");
@@ -49,26 +53,36 @@ test("task labels summarize commands and bound provider prose", () => {
   }
 });
 test("a Claude Stop lists the shells that can wake it, and the transcript ends them", () => {
-  const shells = claudeConversation.shells([
-    { id: "m1", type: "shell", status: "running", command: "tail -F build.log" },
-    { id: "m2", type: "shell", status: "completed" },
-    { id: "m1", type: "shell", status: "running" },
-    { id: "b1", type: "shell", status: "pending", command: "bun test" },
-    { id: "a1", type: "subagent", status: "running" },
-    { id: "", type: "shell", status: "running" },
-  ]);
-  expect(shells.len).toBe(2);
-  expect(shells.slice()[0].text()).toBe("m1");
-  expect(shells.slice()[1].text()).toBe("b1");
+  const monitors = new Set(["m1", "m2", "b1", "w1"]);
+  const shells = claudeConversation.shells(
+    [
+      { id: "m1", type: "shell", status: "running", command: "tail -F build.log" },
+      { id: "m2", type: "shell", status: "completed" },
+      { id: "m1", type: "shell", status: "running" },
+      { id: "b1", type: "shell", status: "pending", command: "bun test" },
+      { id: "a1", type: "subagent", status: "running" },
+      { id: "", type: "shell", status: "running" },
+      // A server no Monitor started may never end.
+      { id: "s1", type: "shell", status: "running", command: "bun run dev" },
+      // A Monitor wakes it whatever it runs.
+      { id: "w1", type: "shell", status: "running", command: "bun run dev" },
+      // A plain background command wakes it when it ends.
+      { id: "r1", type: "shell", status: "running", command: "JOBS=4 bun run test:parallel" },
+    ],
+    monitors,
+  );
+  expect(shells.slice().map(id => id.text())).toEqual(["m1", "b1", "w1", "r1"]);
   const ended = new Ended();
   ended.add("x1");
   shells.drop(ended);
-  expect(shells.len).toBe(2);
+  expect(shells.len).toBe(4);
   ended.add("m1");
   ended.add("b1");
+  ended.add("w1");
+  ended.add("r1");
   shells.drop(ended);
   expect(shells.len).toBe(0);
-  expect(claudeConversation.shells(null).len).toBe(0);
+  expect(claudeConversation.shells(null, monitors).len).toBe(0);
   for (let i = 0; i < Ended.limit + 1; i++) ended.add(`t${i}`);
   expect(ended.len).toBe(Ended.limit);
   expect(ended.listed("x1")).toBe(false);
