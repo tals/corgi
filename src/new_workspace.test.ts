@@ -130,6 +130,95 @@ test("moving through the list writes each folder into the field, and back to wha
   expect(b.field.raw()).toBe("~/d");
 });
 
+test("tab completes the only match and lists inside it", async () => {
+  const b = await browse();
+  paste(b, "co");
+  b.complete();
+  expect(b.field.raw()).toBe("~/code/");
+  await settle();
+  expect(b.entries).toEqual(["corgi", "other"]);
+  b.complete();
+  expect(b.field.raw()).toBe("~/code/corgi");
+  // An empty folder: nothing more to complete.
+  paste(b, "/");
+  await settle();
+  b.complete();
+  expect(b.field.raw()).toBe("~/code/corgi/");
+});
+
+test("tab on a highlighted only match goes into it", async () => {
+  const b = await browse();
+  paste(b, "co");
+  b.sequence("\x1b[B");
+  expect([b.highlight, b.field.raw()]).toEqual([0, "~/code"]);
+  b.complete();
+  expect(b.field.raw()).toBe("~/code/");
+});
+
+test("tab fills the shared start first, then cycles and wraps", async () => {
+  const b = await browse();
+  paste(b, "d");
+  b.complete();
+  expect(b.field.raw()).toBe("~/Doc");
+  expect(b.highlight).toBeNull();
+  b.complete();
+  expect([b.highlight, b.field.raw()]).toEqual([0, "~/Documents"]);
+  b.complete();
+  expect([b.highlight, b.field.raw()]).toEqual([1, "~/docs"]);
+  b.complete();
+  expect([b.highlight, b.field.raw()]).toEqual([0, "~/Documents"]);
+  // Editing ends the cycle.
+  b.key(127);
+  expect(b.highlight).toBeNull();
+});
+
+test("tab with nothing shared starts cycling at once, from any highlight", async () => {
+  const b = await browse();
+  b.complete();
+  expect(b.field.raw()).toBe("~/code");
+  b.sequence("\x1b[B");
+  expect(b.highlight).toBe(1);
+  b.complete();
+  expect(b.highlight).toBe(2);
+  expect(b.field.raw()).toBe("~/docs");
+});
+
+test("tab does nothing without matches, before the folder is read, or past the offer to create", async () => {
+  const b = await browse();
+  paste(b, "x");
+  expect(b.create).toBe("x");
+  b.complete();
+  expect([b.field.raw(), b.highlight]).toEqual(["~/x", null]);
+  paste(b, "/../locked/");
+  await settle();
+  b.complete();
+  expect(b.field.raw()).toBe("~/x/../locked/");
+  // A machine that hasn't answered yet: nothing to complete.
+  const slow = Browser.init(
+    "/home/me",
+    new Reader({ home: "/home/me", ask: () => new Promise(() => {}), lost: () => false }),
+  );
+  expect(slow.reading).toBe(true);
+  slow.complete();
+  expect(slow.field.raw()).toBe("~/");
+});
+
+test("tab completes dot folders and the whole field, wherever the cursor is, and clears a problem", async () => {
+  const b = await browse();
+  paste(b, ".");
+  b.complete();
+  expect(b.field.raw()).toBe("~/.config/");
+  b.field.clear();
+  paste(b, "~/cod");
+  b.sequence("\x1b[D");
+  b.sequence("\x1b[D");
+  b.problem = "not_created";
+  b.complete();
+  expect(b.field.raw()).toBe("~/code/");
+  expect(b.field.cursor).toBe(b.field.len);
+  expect(b.problem).toBeNull();
+});
+
 test("right opens the highlighted folder with nothing picked, and left goes up to the folder it left", async () => {
   const b = await browse();
   const press = async (seq: string) => {
@@ -248,7 +337,22 @@ test("the window keeps the highlight in view", async () => {
   expect(b.window(5)).toBe(1);
 });
 
-test("the dialog moves between the name and the folder with tab", async () => {
+test("tab on the folder completes and the name follows", async () => {
+  const d = new Dialog(await browse());
+  d.key(9);
+  expect(d.browser.focused).toBe(true);
+  d.key(c("c"));
+  d.key(9);
+  expect(d.browser.field.raw()).toBe("~/code/");
+  expect(d.browser.focused).toBe(true);
+  await settle();
+  d.key(9);
+  expect(d.name()).toBe("corgi");
+  d.sequence("\x1b[Z");
+  expect(d.browser.focused).toBe(false);
+});
+
+test("tab moves from the name to the folder, shift-tab back", async () => {
   const d = new Dialog(await browse());
   d.key(c("x"));
   expect(d.name()).toBe("x");
@@ -302,11 +406,11 @@ test("too short for the list, moving a workspace keeps its folder field and the 
   expect(w.s).not.toContain("Name");
   expect(v.at(v.text_x + 2, v.field_y)).toEqual({ tag: "folder", field: 2 });
   expect(v.buttons().map(b => v.at(b.x, v.buttons_y).tag)).toEqual(["save", "up", "cancel"]);
-  // Tab keeps the keys on the folder, the only field there is, and Up picks a folder into it.
+  // Tab completes in the folder, the only field there is.
   d.key(9);
-  expect(d.browser.focused).toBe(true);
-  d.sequence("\x1b[A");
-  expect([d.browser.focused, d.browser.folder(), d.name()]).toEqual([true, "/home/me/code/other", "corgi"]);
+  expect([d.browser.focused, d.browser.folder(), d.name()]).toEqual([true, "/home/me/code/corgi", "corgi"]);
+  d.key(9);
+  expect(d.browser.folder()).toBe("/home/me/code/other");
   // A new workspace still falls back to the plain dialog on its name.
   expect(new Dialog(await browse()).view(100, 12)).toBeNull();
 });
@@ -593,7 +697,7 @@ test("the name follows the folder until it is edited", async () => {
   expect(d.name()).toBe("new_task");
   expect(d.follows_folder).toBe(true);
   // Moving through the name doesn't edit it.
-  d.key(9);
+  d.sequence("\x1b[Z");
   d.sequence("\x1b[F");
   expect(d.follows_folder).toBe(true);
   d.key(c("s"));
@@ -641,7 +745,7 @@ test("up and down go round the name, the folder and its folders", async () => {
   // With no folders listed, the name, the field and the offer to create.
   d.key(9);
   d.key(c("x"));
-  d.key(9);
+  d.sequence("\x1b[Z");
   d.sequence("\x1b[B");
   expect(b.focused).toBe(true);
   expect(b.entries).toEqual([]);
@@ -671,7 +775,7 @@ test("the name is selected only until the keys first leave it", async () => {
   d.sequence("\x1b[B");
   expect(d.name()).toBe("corgi");
   // Back on the name, typing adds to it.
-  d.key(9);
+  d.sequence("\x1b[Z");
   expect(d.selected).toBe(false);
   d.key(c("2"));
   expect(d.name()).toBe("corgi2");

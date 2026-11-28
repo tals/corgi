@@ -1512,7 +1512,9 @@ test("change folder works in a terminal too short for the folder list", async ()
     s.tab_menu = new TabMenu({ tab: 1, workspace: true, anchor_x: 0 });
     await s.tabMenuAction("change-folder");
     expect(s.frame()).toContain("Change folder");
-    await s.input(bytes("\tnext\r"));
+    for (let i = 0; i < 400 && s.name_dialog?.browser.reading; i++) await Bun.sleep(5);
+    // Tab completes the only folder there.
+    await s.input(bytes("\t\r"));
     await s.settle();
     expect(commands).toEqual([{ "workspace.edit": { target: 1, name: "next", cwd: join(root, "app/next") } }]);
   } finally {
