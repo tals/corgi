@@ -36,10 +36,18 @@ Use only `memory get`: `memory search` counts hits toward MEMORY.md, and `add`/`
 
 ## Choose
 
-Always run `corgi list --json` once before choosing. It names your own
-conversation (the `agent.session` of your pane, or of the `headless_sessions`
-entry whose `id` is `$CORGI_HEADLESS_ID`) and shows which candidates are live
-(see Live sources).
+Always list the live sessions once before choosing, with exactly this command:
+
+```sh
+corgi list --json | jq -c '.result | (.panes[] | select(.agent.provider) | {to: "\(.id)", workspace} + .agent),
+  (.headless_sessions[] | select(.corgi | not) | {to: "headless:\(.id)", name: .agent.name, provider, session, state, cwd, workspace})
+  | {to, name, provider, session, state, cwd, workspace}'
+```
+
+Each line is a live session, and `to` is its only address for `corgi message`.
+Never use an ID from `.result.conversations`: those number conversations, not
+panes. Your own session is the line whose `to` is `$CORGI_PANE` (or
+`headless:$CORGI_HEADLESS_ID`).
 Rank candidates by session name or title, folder and workspace, recency, and
 depth of matches (many hits, tool calls, work in the topic's own folder).
 Exclude your own conversation and hits that only mention the topic, such as
@@ -83,32 +91,30 @@ That session is still running in pane 3 ("Importer date parser"). Ask it directl
 
 ## Live sources
 
-A candidate is live when its `provider:session` matches `agent.provider` and
-`agent.session` of a pane or `headless_sessions` entry in `corgi list --json`.
+A candidate is live when its `provider:session` matches a line of the live list.
 Offer to ask it directly, since it has the full context. If the user
 declines, answer from the transcript; if they accept, draft and confirm as below.
-When its `agent.state` is `blocked`, it waits on a prompt and a message would
+When its `state` is `blocked`, it waits on a prompt and a message would
 fail with `AgentBlocked`: answer from the transcript instead, and say which
 pane is waiting for the user (`corgi pane read` shows the prompt).
 
 ## Hand over work
 
-Find the owner by folder or workspace (the `cwd` and `workspace` of a pane or
-headless session in `corgi list --json`), not by name alone; a headless
-target is addressed as `headless:ID`. When several live sessions share the
-folder, list them with names and states and ask which one. When none is live,
-say so and offer to recall from that folder's past conversations; starting a
-new session is left to the user.
+Find the owner by the `cwd` and `workspace` of a live list line, not by name
+alone. When several share the folder, list them with names and states and ask
+which one. When none is live, say so and offer to recall from that folder's
+past conversations; starting a new session is left to the user.
 
-Before sending, show the target's ID, name and folder and the full draft.
+Before sending, show the target's `to`, name and folder and the full draft.
 Write the draft so the receiver needs no other context: what to do, why, and
 the evidence, summarized; never copy secrets, tokens or credentials into it.
-End it with your reply address as a literal ID: read `$CORGI_PANE` and write
-`Reply with: corgi message 12 --stdin`, never the variable itself. Without a
-pane (in the Corgi prompt, `$CORGI_HEADLESS_ID` names a chat that messages
-can't reach), write `Reply to the user; this sender can't receive messages.`
-instead. Send only after the user explicitly confirms that target and draft,
-through stdin so quotes in the draft stay text:
+End it with your reply address, the number `echo "$CORGI_PANE"` prints, as in
+`Reply with: corgi message 12 --stdin`; never the variable itself or a number
+from `corgi list --json`. Without a pane (in the Corgi prompt,
+`$CORGI_HEADLESS_ID` names a chat that messages can't reach), write `Reply to
+the user; this sender can't receive messages.` instead. Send only after the
+user explicitly confirms that target and draft, through stdin so quotes in the
+draft stay text:
 
 ```sh
 corgi message 31 --stdin <<'CORGI_HANDOVER_END'
@@ -121,8 +127,9 @@ Report the outcome in plain words: delivered, queued while it works,
 `PaneAsleep` (hibernated), `NoAgent`, `AgentBlocked` (waiting on a prompt),
 `AgentBusy` (holding a draft), `NoConversation` (headless, still starting) or
 `DeliveryUnknown` (it may have it); name any other error as printed. Never
-resend by yourself; if unsure, read a pane with `corgi pane read` or check a
-headless entry's state in `corgi list --json`.
+resend by yourself: after `NoPane` or `NoHeadlessSession` (a wrong address or
+an ended session), list again and show the user the current `to` first; if
+unsure, read a pane with `corgi pane read` or check its `state` in the list.
 Never start, resume, close or type into sessions for recall or handover.
 
 ## Safety and scope

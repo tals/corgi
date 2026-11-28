@@ -20,7 +20,7 @@ test("the recall skill's front matter names it and its triggers", () => {
 });
 
 test("the recall skill stays short", () => {
-  expect(skill.trimEnd().split("\n").length).toBeLessThan(140);
+  expect(skill.trimEnd().split("\n").length).toBeLessThan(150);
 });
 
 test("the docs show how to install the recall skill", () => {
@@ -45,6 +45,10 @@ test("the recall skill teaches search, reading, live checks, handover and safety
     "corgi memory get",
     "untrusted",
     "corgi list --json",
+    ".panes[]",
+    ".headless_sessions[]",
+    ".result.conversations",
+    "NoPane",
     "CORGI_PANE",
     "CORGI_HEADLESS_ID",
     "confirm",
