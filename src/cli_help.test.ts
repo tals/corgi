@@ -30,9 +30,11 @@ test("the overview fits 80 columns and is plain off a terminal", () => {
     expect(plain).not.toContain("\x1b");
     expect(plain).toContain("Build 3bda17b-dirty built on ");
     expect(plain).toContain("corgi help --all");
+    expect(plain).toMatch(/^  --skill +corgi grep --skill +Print the skill\.md for the command$/m);
     expect(plain).toContain("https://discord.gg/8v6eNAKuT");
     for (const line of plain.split("\n")) expect(displayWidth(line)).toBeLessThanOrEqual(80);
     const rich = cli_help.overview(true, release);
+    expect(rich).toContain("Print the \x1b[36mskill.md\x1b[0m for the command");
     expect(rich).toContain(
       "\x1b]8;;https://github.com/tals/corgi/commit/3bda17b229cdb2981bbebaca28bdc89d59f62591\x1b\\3bda17b",
     );

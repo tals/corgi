@@ -804,6 +804,7 @@
   "Previous pane": "上一个窗格",
   "Previous tab": "上一个标签页",
   "Previous workspace": "上一个工作区",
+  "Print the ${skillFile} for the command": "输出该命令的 ${skillFile}",
   "Process counts unavailable": "进程数量不可用",
   "Process information unavailable": "进程信息不可用",
   "Process list may be incomplete": "进程列表可能不完整",
