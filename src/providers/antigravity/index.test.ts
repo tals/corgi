@@ -20,6 +20,7 @@ import { Agent } from "../../agents";
 import { Registry } from "../../conversations";
 import * as json from "../../json";
 import { conversations } from "./search";
+import { Watcher } from "./screen";
 
 const session = "a53504fb-0568-49bf-af86-c5844676936b",
   child = "2e83ed1b-33d2-4b63-8b28-6ab52910e832";
@@ -65,6 +66,47 @@ test("Antigravity hook installation preserves other hooks and explicit disables"
   } finally {
     rmSync(account, { recursive: true, force: true });
   }
+});
+
+test("Antigravity installs a silent context reporter alongside the default status and respects user settings", () => {
+  const home = mkdtempSync(join(tmpdir(), "corgi-agy-status-")),
+    file = join(directory(home), "settings.json"),
+    run = (op: "install" | "status" | "uninstall") =>
+      integration(op, home).find(s => s.item === "context meter")!.outcome;
+  try {
+    mkdirSync(directory(home), { recursive: true });
+    writeFileSync(file, JSON.stringify({ editorMode: "vim" }));
+    expect(run("install")).toBe("added");
+    expect(run("install")).toBe("present");
+    const ours = JSON.parse(readFileSync(file, "utf8"));
+    expect(ours.statusLine.stack_with_default).toBe(true);
+    expect(run("uninstall")).toBe("removed");
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ editorMode: "vim" });
+    for (const statusLine of [{ command: "my-status" }, { enabled: false }]) {
+      const original = JSON.stringify({ statusLine, editorMode: "vim" });
+      writeFileSync(file, original);
+      expect(run("install")).toBe("partial");
+      expect(run("uninstall")).toBe("absent");
+      expect(readFileSync(file, "utf8")).toBe(original);
+    }
+    ours.statusLine.enabled = false;
+    writeFileSync(file, JSON.stringify(ours));
+    expect(run("install")).toBe("partial");
+    expect(run("uninstall")).toBe("removed");
+    expect(JSON.parse(readFileSync(file, "utf8")).statusLine).toEqual({ enabled: false });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("Antigravity recognizes compaction only at the live composer", () => {
+  const watcher = new Watcher(),
+    status = "⣻  Compacting conversation… (2s · esc to cancel)",
+    composer = "────────────\n>\n────────────";
+  expect(watcher.reading("", status + "\n" + composer + "\nesc to cancel")).toBe("compacting");
+  expect(watcher.reading("", status + "\n" + composer + "\n? for shortcuts")).toBe("idle");
+  expect(watcher.reading("", status + "\n" + composer + "\nOld turn\n" + composer + "\n? for shortcuts")).toBe("idle");
+  expect(watcher.reading("", "Conversation compacted\n" + composer + "\n? for shortcuts")).toBe("idle");
 });
 
 test("Antigravity history, child metadata and transcript search use the same conversation IDs", async () => {

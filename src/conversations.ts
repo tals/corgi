@@ -49,6 +49,7 @@ export class Actor {
   shells = new background_tasks.Shells();
   live_usage = new View();
   context = new Reading();
+  context_hook_seq = 0n;
   headless_meter = new Counter();
   usageView(now: number) {
     return this.headless_usage ? this.headless_meter.meter.view(now) : this.live_usage;

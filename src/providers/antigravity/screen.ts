@@ -5,7 +5,19 @@ import type { PaneView, PaneMemory, Known } from "../adapter";
 
 const separator = /^─{8,}$/;
 function reading(_title: string, text: string): Reading | null {
-  const tail = text.trimEnd().split("\n").slice(-18).join("\n").toLowerCase();
+  const rows = text.trimEnd().split("\n").slice(-18),
+    tail = rows.join("\n").toLowerCase(),
+    composer = rows.findLastIndex(row => /^>(?: |$)/.test(row));
+  // Only the live spinner immediately above the composer reports compaction.
+  if (
+    composer >= 2 &&
+    separator.test(rows[composer - 1].trimEnd()) &&
+    /^[\u2800-\u28ff]\s+Compacting conversation(?:…|\.\.\.)\s*\([^)]*esc to cancel\)$/.test(
+      rows[composer - 2].trim(),
+    ) &&
+    !rows.slice(composer + 1).some(row => row.includes("? for shortcuts"))
+  )
+    return "compacting";
   if (
     tail.includes("esc to cancel") &&
     /requesting permission for:|no, (?:cancel|deny)|yes, and always allow/.test(tail)

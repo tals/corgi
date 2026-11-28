@@ -5,6 +5,7 @@ import * as hooksFile from "../hooks_file";
 import { field, str, Hooks, type Hook } from "../common";
 import type { IntegrationStepResult } from "../adapter";
 import { customizations, validSession } from "./config";
+import * as status from "./status";
 const codec = new Hooks();
 const events = {
   SessionStart: "SessionStart",
@@ -15,6 +16,11 @@ const events = {
 } as const;
 const writes = new Set(["write_to_file", "replace_file_content", "multi_replace_file_content", "notebook_edit"]);
 export function decode(v: unknown): Hook {
+  const reported = str(v, "conversation_id");
+  if (validSession(reported)) {
+    const reading = status.context(v);
+    return reading ? codec.decode({ session_id: reported }, reading) : null;
+  }
   const session = str(v, "conversationId"),
     event = str(v, "hookEventName");
   if (!validSession(session) || !Object.hasOwn(events, event)) return null;
@@ -69,7 +75,7 @@ const handlers = Object.fromEntries(
   ]),
 );
 const name = "Reporting to Corgi";
-export function integration(op: "install" | "uninstall" | "status", account: string): IntegrationStepResult[] {
+function hooks(op: "install" | "uninstall" | "status", account: string): IntegrationStepResult[] {
   const dir = customizations(account),
     file = new hooksFile.File("antigravity", dir, "hooks.json", []);
   const base = { item: "hooks", path: file.path };
@@ -116,4 +122,7 @@ export function integration(op: "install" | "uninstall" | "status", account: str
   } catch (e) {
     return [hooksFile.failed("hooks", file.path, e)];
   }
+}
+export function integration(op: "install" | "uninstall" | "status", account: string) {
+  return [...hooks(op, account), ...status.integration(op, account)];
 }

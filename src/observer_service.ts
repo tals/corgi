@@ -368,10 +368,10 @@ function found(server: Server, provider: Provider, pid: number) {
   void import("./launch_service").then(l => l.agentRan(server, provider, pid)).catch(() => {});
 }
 export function hook(server: Server, query: Request<"hook">) {
-  found(server, query.provider, query.pid);
   const workers = start(server),
     runtime = server.runtime;
   const event = adapter(query.provider).hook(query.event);
+  if (!event?.context) found(server, query.provider, query.pid);
   if (!event) return;
   const now = clock.microTimestamp(),
     known = runtime.conversations.find(query.provider, event.session),
@@ -399,23 +399,36 @@ export function hook(server: Server, query: Request<"hook">) {
   }
   if (pane.detection.claim) return;
   detectPane(server, pane);
-  if (!event.independent_child && held.seq <= pane.attachment.hook_seq) return;
+  if (ordersTurn(held) && held.seq <= pane.attachment.hook_seq) return;
   const actor = routed(runtime, pane, held, route.binds);
   // A pane learns its conversation from its title, which can trail the first hooks.
   if (actor) apply(server, actor, held, now);
   else workers.held.add(held);
 }
+function ordersTurn(held: Held) {
+  return !held.event.independent_child && !held.event.context;
+}
 /** The conversation `pane` shows that `held` is about, which takes it as the pane's latest hook. */
 function routed(runtime: Runtime, pane: Pane, held: Held, binds: boolean) {
   const actor = runtime.conversations.routeHook(pane.attachment, held.provider, held.event, binds);
   if (!actor) return null;
-  if (!held.event.independent_child) pane.attachment.hook_seq = held.seq;
+  if (ordersTurn(held)) pane.attachment.hook_seq = held.seq;
   if (held.event.kind === "session_start") runtime.rememberAgent(pane.id, held.provider);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? 0;
   return actor;
 }
 function apply(server: Server, actor: Actor, held: Held, now: number) {
+  const reading = held.event.context;
+  if (reading) {
+    if (held.seq > actor.context_hook_seq) {
+      actor.context_hook_seq = held.seq;
+      reading.at = Number(held.seq / 1000n);
+      actor.context = reading;
+      changed(server);
+    }
+    return;
+  }
   const runtime = server.runtime,
     workers = start(server);
   if (held.pid > 0) actor.pid = held.pid;
@@ -438,7 +451,7 @@ function applyUsage(server: Server, workers: Workers) {
     if (result.checklist) actor.observeChecklist(result.checklist);
     if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
     if (!actor.headless_usage) actor.live_usage = result.live;
-    actor.context = result.context;
+    if (!actor.context_hook_seq) actor.context = result.context;
     runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
     const continuation = adapter(actor.provider()).transcript?.continuation;
     if (result.continued.len && continuation && result.continued.text() !== actor.state.sessionId()) {
@@ -483,8 +496,8 @@ function show(server: Server, pane: Pane, actor: Actor, covered = 0n) {
   if (finished > covered) covered = finished;
   const now = clock.microTimestamp();
   for (const held of start(server).held.take(actor.provider(), actor.state.sessionId(), now)) {
-    if (held.seq <= covered) continue;
-    if (!held.event.independent_child && held.seq <= pane.attachment.hook_seq) continue;
+    if (!held.event.context && held.seq <= covered) continue;
+    if (ordersTurn(held) && held.seq <= pane.attachment.hook_seq) continue;
     const target = routed(server.runtime, pane, held, false);
     if (target) apply(server, target, held, now);
   }

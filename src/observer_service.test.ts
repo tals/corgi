@@ -518,6 +518,40 @@ test("transcript checklists cannot replace newer hooks and stay with their own c
   expect(actor.checklist.items).toEqual([]);
 });
 
+test("Antigravity context reports survive transcript polling and never reorder turn hooks", async () => {
+  const { server, registry, pane } = fixture(),
+    actor = registry.get("antigravity", id);
+  pane.detection.pid = 0;
+  pane.attachment.select(actor);
+  const send = (seq: bigint, event: object) =>
+    hook(server, { provider: "antigravity", pane: 1, pid: 0, background: false, seq, event });
+  const report = (used_percentage: number, seq: bigint) =>
+    send(seq, {
+      conversation_id: id,
+      model: { id: "Gemini" },
+      context_window: {
+        context_window_size: 1048576,
+        used_percentage,
+        total_input_tokens: 900000,
+        current_usage: { input_tokens: 1000 },
+      },
+    });
+  report(25, 5000n);
+  report(50, 4000n);
+  expect(actor.context.used).toBe(262144n);
+  expect(actor.context.window).toBe(1048576n);
+  expect(pane.attachment.hook_seq).toBe(0n);
+  send(3000n, { conversationId: id, hookEventName: "PreInvocation", initialNumSteps: 0 });
+  expect(actor.state.state).toBe("working");
+  report(12.5, 6000n);
+  expect(actor.state.last_seq).toBe(3000n);
+  const result = new UsageResult();
+  result.actor = actor.id;
+  start(server).usage.results.push(result);
+  await pause(server);
+  expect(actor.context.used).toBe(131072n);
+});
+
 test("local Codex identity attaches without lifecycle authority and admits only matching hooks", () => {
   const { server, pane, terminal, registry } = fixture();
   const request = {

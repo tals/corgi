@@ -1,4 +1,5 @@
 import type * as checklist from "../activity/checklist";
+import type { Reading } from "../usage/context_window";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
@@ -107,7 +108,7 @@ export type Hook = ReturnType<Hooks["decode"]>;
 /** Where Claude's EnterWorktree and ExitWorktree report moving the session. */
 const moves: Record<string, string> = { EnterWorktree: "worktreePath", ExitWorktree: "restoredCwd" };
 export class Hooks {
-  decode(v: unknown) {
+  decode(v: unknown, context: Reading | null = null) {
     if (!v || typeof v !== "object" || Array.isArray(v)) return null;
     const session_kinds: Record<string, string> = {
       SessionStart: "session_start",
@@ -133,7 +134,7 @@ export class Hooks {
       SubagentStop: "subagent_stop",
     };
     const agent = str(v, "agent_id"),
-      kind = (agent ? subagent_kinds : session_kinds)[str(v, "hook_event_name")];
+      kind = context ? "context" : (agent ? subagent_kinds : session_kinds)[str(v, "hook_event_name")];
     const notification = str(v, "notification_type");
     if (!kind || (kind === "notification" && !["permission_prompt", "elicitation_dialog"].includes(notification)))
       return null;
@@ -178,6 +179,7 @@ export class Hooks {
       activity_amend: field(v, "amend") === true,
       /** The whole checklist this event reports, if it reports one. */
       checklist: null as checklist.List | null,
+      context,
       background_tasks: field(v, "background_tasks"),
       session_crons: field(v, "session_crons"),
       subagent: agent || (launched ? str(response, "agentId") : ""),
