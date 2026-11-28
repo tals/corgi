@@ -56,8 +56,15 @@ export function shells(value: any) {
 export function wakeup(crons: any) {
   return Array.isArray(crons) && crons.some(c => field(c, "recurring") === false);
 }
+/** The tool calls, by subagent, whose permission prompts a conversation
+ * shows, and whether it waited on its subagents when the first one asked. The
+ * prompt's notification names no agent, so it blocks the conversation itself.
+ * A reload forgets them, and the next hook of the conversation's own ends the
+ * block. */
+const prompts = new WeakMap<Actor, { agents: Map<string, Set<bigint>>; waiting: boolean }>();
 /** Keeps an actor's background shells and tasks as a hook reports them. */
 export function hooked(actor: Actor, event: any, now: number) {
+  if (!event.permission_notification) prompts.delete(actor);
   actor.state.subagents.waiting = false;
   const tasks = inventory(event.background_tasks, now);
   if (tasks) actor.background_tasks = tasks;
@@ -140,13 +147,41 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
     actor.paused_for_wakeup = wakes;
   }
 }
-/** A subagent's start or stop, which leaves its parent's own state alone. */
+/** Ends the block subagents' prompts raised once each prompted call ends, or
+ * its subagent stops (`call` null). A denied call sends no hook of its own. */
+function answered(parent: Actor, subagent: string, call: bigint | null, now: number) {
+  const asked = prompts.get(parent),
+    calls = asked?.agents.get(subagent);
+  if (!asked || !calls || (call !== null && !calls.delete(call))) return;
+  if (call === null || !calls.size) asked.agents.delete(subagent);
+  if (asked.agents.size) return;
+  prompts.delete(parent);
+  const own = parent.state;
+  if (own.state !== "blocked") return;
+  own.state = "working";
+  own.subagents.waiting = asked.waiting && own.subagents.running > 0;
+  own.tool_active = false;
+  own.attention = own.observation.unread() ? "finished" : "none";
+  own.changed_at = now;
+}
+/** A subagent's start, stop, permission prompt or tool. Only going on from
+ * its prompt changes its parent's own state. */
 export function child(registry: Registry, parent: Actor, event: any, now: number) {
+  if (event.kind === "subagent_permission") {
+    const asked = prompts.get(parent) ?? { agents: new Map(), waiting: parent.state.subagents.waiting };
+    const calls = asked.agents.get(event.subagent) ?? new Set<bigint>();
+    if (calls.size < capacity) calls.add(event.tool_call);
+    if (asked.agents.size < capacity && Buffer.byteLength(event.subagent) <= 96)
+      asked.agents.set(event.subagent, calls);
+    prompts.set(parent, asked);
+    return;
+  }
+  if (event.kind === "subagent_tool") return answered(parent, event.subagent, event.tool_call, now);
   if (event.kind === "subagent_stop") {
     // The list still has the stopping subagent running.
     const listed = children(event.background_tasks);
     if (listed) follow(registry, parent, listed.without(event.subagent), now);
-    return;
+    return answered(parent, event.subagent, null, now);
   }
   // A launch adopts a new subagent; a start only revives one a message resumed.
   const known = registry.find(parent.provider(), event.subagent);

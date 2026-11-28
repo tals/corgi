@@ -442,7 +442,8 @@ export interface Conversation {
   hooked?(actor: Actor, event: Hook, now: number): void;
   /** Follows a hook an actor applied: its subagents, a pause. */
   applied?(registry: Registry, actor: Actor, event: Hook, seq: bigint, now: number): void;
-  /** Follows a child's start or stop, which leaves the actor's own state alone. */
+  /** Follows a child's own hook: its start or stop, or a prompt it raised
+   * and went on from. */
   child?(registry: Registry, actor: Actor, event: Hook, now: number): void;
   /** Whether the process holding an actor's pause still runs. */
   holds?(pid: number): boolean;

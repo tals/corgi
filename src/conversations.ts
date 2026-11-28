@@ -11,6 +11,7 @@ import { Model } from "./providers/model";
 import { PromptWatch } from "./detection";
 import type { Snapshot } from "./providers/snapshot";
 import { adapter } from "./providers";
+import { childHook } from "./providers/common";
 import * as worktrees from "./worktrees";
 export const max_actors = 1024;
 export type ActorId = number & { readonly __actorId: unique symbol };
@@ -394,7 +395,7 @@ export class Registry {
     return false;
   }
   observeHook(actor: Actor, event: any, seq: bigint, watched: boolean, now: number, presence: Presence = "detached") {
-    if (event.kind === "subagent_start" || event.kind === "subagent_stop") {
+    if (childHook(event)) {
       // Child hooks share a transport, not their parent's or siblings' event order.
       const child = this.find(actor.provider(), event.subagent);
       if (
@@ -448,7 +449,7 @@ export class Registry {
    * already shows. */
   routeHook(binding: Attachment, provider: Provider, event: any, binds: boolean) {
     if (!event.session) return null;
-    if (event.kind === "subagent_start" || event.kind === "subagent_stop") {
+    if (childHook(event)) {
       const actor = this.find(provider, event.session);
       let ancestor = actor;
       for (let i = 0; ancestor && i < max_actors; i++) {

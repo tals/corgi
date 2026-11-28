@@ -104,6 +104,21 @@ export function timestampMs(s: string): number | null {
   return Date.UTC(y, m - 1, d, h, min, sec, ms);
 }
 export type Hook = ReturnType<Hooks["decode"]>;
+/** A subagent's own hooks name it in agent_id. The session that runs it
+ * follows its start and stop, a permission it asks for, and the end of a
+ * tool call, which shows the subagent went on. */
+const subagent_kinds: Record<string, string> = {
+  SubagentStart: "subagent_start",
+  SubagentStop: "subagent_stop",
+  PermissionRequest: "subagent_permission",
+  PostToolUse: "subagent_tool",
+  PostToolUseFailure: "subagent_tool",
+};
+const child_kinds = new Set(Object.values(subagent_kinds));
+/** Whether a hook is about one of the session's subagents, not the session. */
+export function childHook(event: { kind: string }) {
+  return child_kinds.has(event.kind);
+}
 /** Where Claude's EnterWorktree and ExitWorktree report moving the session. */
 const moves: Record<string, string> = { EnterWorktree: "worktreePath", ExitWorktree: "restoredCwd" };
 export class Hooks {
@@ -126,12 +141,6 @@ export class Hooks {
       SessionEnd: "session_end",
       Notification: "notification",
     };
-    // A subagent's own hooks name it in agent_id; only its start and stop
-    // are news to the session that runs it.
-    const subagent_kinds: Record<string, string> = {
-      SubagentStart: "subagent_start",
-      SubagentStop: "subagent_stop",
-    };
     const agent = str(v, "agent_id"),
       kind = (agent ? subagent_kinds : session_kinds)[str(v, "hook_event_name")];
     const notification = str(v, "notification_type");
@@ -149,7 +158,7 @@ export class Hooks {
       awaiting_async_work: false,
       child_transcript: "",
       /** This event updates only its named child, not a session-wide child list. */
-      independent_child: false,
+      independent_child: kind === "subagent_permission" || kind === "subagent_tool",
       owner_pid: 0,
       session: str(v, "session_id"),
       turn: str(v, "turn_id"),
@@ -165,6 +174,9 @@ export class Hooks {
           ? "default"
           : null) as Permissions | null,
       tool,
+      /** Which call a subagent's tool hook is about. Its permission request
+       * carries no tool_use_id, only the tool and its input. */
+      tool_call: agent && tool ? Bun.hash.wyhash(`${tool}\0${JSON.stringify(input ?? null)}`, 0n) : 0n,
       writes:
         kind === "tool_finish" &&
         !field(response, "is_error") &&
