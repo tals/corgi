@@ -422,16 +422,18 @@ test("first load shows discovery instead of speculative launcher or Active rows"
   expect(m.count()).toBe(1);
   expect(m.first()).toBe("terminal");
   expect(m.manager.items(m.manageModel()).have).toEqual([]);
-  expect(screen(m, 120, 40, side).join("\n")).toContain("Discovering Codex, Claude Code, Pi, OpenCode, Oh My Pi…");
+  expect(m.discovering()).toBe("Discovering Codex, Claude Code, Pi, OpenCode, Oh My Pi, Google Antigravity…");
+  expect(screen(m, 120, 40, side).join("\n")).toContain("Discovering Codex");
   m.preview = preview({
     pending: true,
-    installed: { codex: true, claude: false, pi: true, opencode2: false, omp: true },
+    installed: { codex: true, claude: false, pi: true, opencode2: false, omp: true, antigravity: false },
     options: {
       codex: { pending: false, signed_in: true, account: "me@example.com" },
       claude: { pending: false },
       pi: { pending: true },
       opencode2: { pending: false },
       omp: { pending: true },
+      antigravity: { pending: false },
     },
   });
   expect(m.discovering()).toBe("Discovering Pi, Oh My Pi…");
@@ -457,7 +459,7 @@ test("first load shows discovery instead of speculative launcher or Active rows"
 
 test("manual removals stay removed during discovery and after a successful refresh", () => {
   const m = new Menu();
-  m.hidden.pi = m.hidden.omp = m.hidden.opencode2 = true;
+  m.hidden.pi = m.hidden.omp = m.hidden.opencode2 = m.hidden.antigravity = true;
   expect(m.discovering()).toBe("Discovering Codex, Claude Code…");
   for (const pending of [true, false, true]) {
     m.preview = preview({ pending, options: byProvider(() => ({ pending, signed_in: true })) });

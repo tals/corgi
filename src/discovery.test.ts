@@ -70,7 +70,14 @@ async function isolated(run: (root: string, script: (name: string, body: string)
 
 test("mise resolves every provider without executing its shim or agent", async () => {
   await isolated(async (root, script) => {
-    const versions = { codex: "0.166.0", claude: "2.1.318", pi: "1.20.0", opencode2: "2.1.2", omp: "12.0.0" },
+    const versions = {
+        codex: "0.166.0",
+        claude: "2.1.318",
+        pi: "1.20.0",
+        opencode2: "2.1.2",
+        omp: "12.0.0",
+        antigravity: "1.5.18",
+      },
       called = join(root, "agent-called"),
       shims = join(root, ".local/share/mise/shims");
     for (const p of Provider.all) {

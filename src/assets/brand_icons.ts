@@ -32,6 +32,7 @@ export const art = {
   tmux: svg("tmux"),
   omp: svg("omp"),
   opencode: svg("opencode"),
+  antigravity: svg("antigravity"),
 } satisfies Record<string, Art>;
 
 export type Brand = keyof typeof art;

@@ -195,6 +195,8 @@ Icons' one-color tracings (CC0, https://simpleicons.org), drawn in their
 brand colors. These come under their own licenses, which also cover the
 versions in Corgi:
 
+  Google Antigravity: Google’s official tab mark, https://antigravity.google/favicon.svg
+
   Ruby: Copyright (c) 2006, Yukihiro Matsumoto.
     CC BY-SA 2.5, https://creativecommons.org/licenses/by-sa/2.5/
   PHP: by Colin Viebrock.

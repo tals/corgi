@@ -6,6 +6,18 @@ the user interface. This page covers the contracts behind it.
 
 [OpenCode](opencode.md) describes the v2 adapter and its remaining parity gaps.
 
+## Google Antigravity CLI
+
+Start `agy` in a pane or choose **Google Antigravity** in the agent launcher. Corgi uses the existing Google login and the models listed by `agy models`. Use `corgi which antigravity` to see the executable, or set `CORGI_ANTIGRAVITY_BIN` to select another installation. The launcher reads subscription usage limits for the configured model's quota group from `agy -p /usage --output-format json`, sharing Corgi's account cache, cooldown, and limit history, and reports `GEMINI_API_KEY` setups as metered.
+
+Corgi adds a **Reporting to Corgi** group to `~/.gemini/config/hooks.json`. Antigravity handles tool approval. Corgi follows the running CLI’s conversation lock across `/resume` and `/fork`. If another CLI already holds that lock, the duplicate pane stays unbound until Antigravity selects a conversation it can lock. The resume picker reads Antigravity’s local history and `corgi grep --provider antigravity` searches its transcripts. The sidebar uses transcript token counts and the child conversations in Antigravity’s session index.
+
+Hover over an agent to see Corgi’s context meter. Corgi reads the CLI’s reported window size and usage through a silent `statusLine` command, alongside the built-in status line. An existing custom or disabled status line takes precedence. The sidebar shows **Compacting…** while Antigravity displays compaction progress.
+
+Right-click a conversation and choose **Fork** to open a native Antigravity branch in the next tab. Corgi resumes the parent in that tab with `AGY_CLI_DISABLE_AUTO_UPDATE=true`, waits for the CLI to report the parent ID and an idle state, and submits `/fork` once the composer shows the command. The new conversation ID confirms the fork. Saved launcher commands and wrappers run again for the fork and resume. A saved shell command that removes or overrides the update setting must allow it before forking. If a dialog intercepts the command or confirmation times out, check the new tab. **Rename** changes the conversation's name.
+
+`corgi headless start antigravity "Summarize this workspace"` starts an ACP session. Further prompts, tool approval answers and interrupts go through the same session. Antigravity is also available for Corgi’s activity summaries. These private inference sessions run in a temporary home and workspace with their own tool restrictions.
+
 ## Executable discovery
 
 Corgi asks `mise which` for each agent in the workspace directory before

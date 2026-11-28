@@ -2,6 +2,7 @@ import * as codex from "./providers/codex";
 import * as claude from "./providers/claude";
 import * as pi from "./providers/pi";
 import * as opencode2 from "./providers/opencode2";
+import * as antigravity from "./providers/antigravity";
 import * as omp from "./providers/omp";
 import type { Adapter } from "./providers/adapter";
 import { owns } from "./providers/common";
@@ -17,6 +18,7 @@ const registry = {
   pi,
   opencode2,
   omp,
+  antigravity,
 } satisfies Record<string, { readonly adapter: Adapter }>;
 export type Provider = keyof typeof registry;
 export type ByProvider<T> = Record<Provider, T>;
