@@ -97,6 +97,98 @@ class Remote extends runtime.Runtime {
       remote.result.workspaces.some((workspace: { name: string }) => workspace.name === "REMOTE_WORKSPACE"),
     );
   }
+  async test_stationary_hover_updates_when_remote_tool_output_confirms_a_wrapped_url() {
+    const remote = this.remote!,
+      first = "https://example.org/galle",
+      rest = "ry/preview",
+      uri = first + rest,
+      transcript = join(remote.temp.name, "links.jsonl"),
+      session = "wrapped-link-evidence";
+    fs.writeFileSync(transcript, "");
+    const { pane } = await remote.command("pane.create", {
+      workspace: 1,
+      command: `printf %s ${quote("See " + first + "\r\n  " + rest + "\r\n")}; exec sleep 60`,
+    });
+    await remote.rpc({
+      op: "hook",
+      pane,
+      provider: "claude",
+      seq: Date.now() * 1000,
+      event: { hook_event_name: "SessionStart", session_id: session, transcript_path: transcript },
+    });
+    await this.startViewer();
+    await this.online();
+    const { x, y } = await this.until(() => {
+      const rows = this.text().split("\n"),
+        y = rows.findIndex(line => line.includes("See " + first));
+      return y < 0 ? null : { x: rows[y].indexOf(first) + 2, y };
+    });
+    const status = () => this.text().trimEnd().split("\n").at(-1)?.trim();
+    this.terminal!.write(`\x1b[<35;${x + 1};${y + 1}M`);
+    await this.until(() => this.text().includes("Copy link") && status()?.includes(first)).catch(error => {
+      throw Error("Missing initial link in status line " + status(), { cause: error });
+    });
+    this.assertNotIn(uri, this.text());
+
+    // Only the remote transcript changes. There is no new mouse or pane input.
+    fs.appendFileSync(
+      transcript,
+      JSON.stringify({
+        type: "user",
+        sessionId: session,
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "read", content: uri }] },
+      }) + "\n",
+    );
+    await this.until(() => status()?.includes(uri), 10);
+  }
+  async test_clicking_a_wrapped_relative_path_opens_the_file_in_the_remote_pane_cwd() {
+    await this.openWrappedRelative("assets/preview-no", "tes.txt", "assets/preview-notes.txt");
+  }
+  async test_clicking_a_markdown_filename_split_at_a_space_opens_the_remote_file() {
+    await this.openWrappedRelative("``assets/preview", "notes.txt``", "assets/preview notes.txt");
+  }
+  async test_clicking_an_extensionless_markdown_filename_before_a_period_opens_the_remote_file() {
+    await this.openWrappedRelative("`file", "name`.", "filename", { hover: false });
+  }
+  private async openWrappedRelative(first: string, rest: string, path: string, { hover } = { hover: true }) {
+    const remote = this.remote!,
+      cwd = join(fs.realpathSync(remote.temp.name), "checkout"),
+      marker = "REMOTE_ONLY_FILE_CONTENT";
+    fs.mkdirSync(join(cwd, "assets"), { recursive: true });
+    fs.writeFileSync(join(cwd, path), marker + "\n");
+    fs.mkdirSync(join(this.temp.name, "assets"));
+    fs.writeFileSync(join(this.temp.name, path), "LOCAL_DECOY_CONTENT\n");
+    const display = join(cwd, "output.txt");
+    const { pane } = await remote.command("pane.create", {
+      workspace: 1,
+      cwd,
+      command: `stty -echo; read -r ready; cat ${quote(display)}; exec sleep 60`,
+    });
+    await this.startViewer("work", 135, 32);
+    await this.online();
+    const width = (await remote.session()).panes.find((p: { id: number }) => p.id === pane).cols;
+    // The shell prints a real line break near the margin, without a conversation.
+    fs.writeFileSync(display, "See ".padEnd(width - 3 - first.length) + first + "\n  " + rest + "\n");
+    this.terminal!.write("\r");
+    const { x, y } = await this.until(() => {
+      const rows = this.text().split("\n"),
+        y = rows.findIndex((line, i) => i > 0 && rows[i - 1].includes(first) && line.includes(rest));
+      return y < 0 ? null : { x: rows[y].indexOf(rest) + 1, y };
+    });
+    if (hover) {
+      this.terminal!.write(`\x1b[<35;${x + 1};${y + 1}M`);
+      await this.until(() => this.text().includes(marker), 10);
+    } else {
+      this.assertNotIn(marker, this.text());
+      this.network!.latency_ms = 100;
+    }
+    this.click(x, y);
+    await this.until(async () =>
+      (await remote.session()).panes.some((p: { view?: { path: string } }) => p.view?.path === join(cwd, path)),
+    );
+    await this.until(() => this.text().includes(marker));
+    this.assertNotIn("LOCAL_DECOY_CONTENT", this.text());
+  }
   async test_one_second_one_way_latency_stays_online_and_delivers_typing() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });

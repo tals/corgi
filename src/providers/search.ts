@@ -73,6 +73,8 @@ export interface Search {
   discover(folder: string, context: Context): Promise<Found[]>;
   /** A conversation's messages; `tools` adds its tool calls and results. */
   read(found: Found, tools: boolean): Promise<Normalized>;
+  /** The prose, calls and results in one already-decoded live transcript record. */
+  recordTexts?(value: unknown, session: string): Iterable<string>;
   /** The messages a transcript gained past `from`, an `end` a read gave, with
    * the title only if they name it; absent where one can't be read on. */
   readOn?(found: Found, from: Position): Promise<Normalized>;
@@ -118,9 +120,9 @@ export type Transcripts = Pick<Search, "version" | "home" | "env"> & {
    * say, "excluded" for a conversation search leaves out. */
   identity(records: any[]): { session: string; cwd: string } | "excluded" | null;
   /** A record's user and assistant messages. */
-  messages(record: any, ref: string): Message[];
+  messages(record: any, ref: string, session?: string): Message[];
   /** A record's tool calls and results. */
-  tools(record: any, ref: string): ToolRecord[];
+  tools(record: any, ref: string, session?: string): ToolRecord[];
   /** A name the record gives its conversation. */
   title?(record: any): string;
   /** Tools whose results report their outcome in their text. */
@@ -338,6 +340,10 @@ export function transcripts(spec: Transcripts): Search & { jsonl(input: string, 
         read = await lines(chunks(found.source), decoded);
       const result = decoded.done(read.partial);
       return compressed ? result : { ...result, end: { bytes: read.whole, lines: decoded.lines } };
+    },
+    *recordTexts(value, session) {
+      for (const message of spec.messages(value, "", session)) yield message.text;
+      for (const tool of spec.tools(value, "", session)) yield tool.text;
     },
     async readOn(found, from) {
       if (found.source.endsWith(".jsonl.zst")) throw Error("CompressedTranscript");

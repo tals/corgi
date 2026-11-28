@@ -1,4 +1,5 @@
 import type { Wait as StartupWait } from "./startup";
+import { HoverWatch } from "./link_evidence";
 import * as telemetry from "./telemetry";
 import * as json from "./json";
 import * as wire_compression from "./wire_compression";
@@ -44,6 +45,7 @@ export class Client {
   terminal: unknown = null;
   view_focus: number | null = null;
   interests: Interest[] = [];
+  readonly hover_link = new HoverWatch();
   protocol_version: number | null = null;
   startup_wait: StartupWait | null = null;
   subscribed = false;

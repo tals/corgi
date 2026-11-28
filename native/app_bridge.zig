@@ -3,11 +3,12 @@ const pane = @import("pane");
 const a = std.heap.c_allocator;
 const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".param_types[1].?;
 const Request = struct {
-    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, text, history, snapshot, fadedSnapshot, theme, paste, prefill, refreshRedraw, takeCopied, takePending, pending, restore, adopt, stop, reap, links },
+    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, text, history, snapshot, fadedSnapshot, theme, paste, prefill, refreshRedraw, takeCopied, takePending, pending, restore, adopt, stop, reap, links, linkWindow },
     pane: u32 = 0,
     offset: ?usize = null,
     text: []const u8 = "",
     skip: usize = 0,
+    verify: bool = false,
     unit: pane.Terminal.PickUnit = .word,
     x: u16 = 0,
     y: u16 = 0,
@@ -67,6 +68,7 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             .synchronized_output = t.vt.modes.get(.synchronized_output),
         }, out, cap),
         .surface => return result(alloc, try pane.surface.captureView(alloc, @enumFromInt(req.pane), t, req.offset), out, cap),
+        .linkWindow => return result(alloc, try pane.surface.linkWindow(alloc, t, req.offset, req.x, req.y, @enumFromInt(req.pane), req.verify), out, cap),
         .image => return result(alloc, try t.graphics.chunk(alloc, req.text, req.skip), out, cap),
         .pixels => t.setCellSize(req.start_x, req.start_y),
         .links => {

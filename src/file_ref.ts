@@ -55,11 +55,12 @@ export function candidates(path: string, cwd: string, home = homedir()): string[
   return out;
 }
 
-export type Status = { kind: "pending" } | { kind: "missing" } | { kind: "file"; path: string; size: number };
+type Found = { kind: "missing" } | { kind: "file"; path: string; size: number };
+export type Status = { kind: "pending"; ready: Promise<Found> } | Found;
 interface Entry {
-  status: Status;
+  status: Found | null;
   at: number;
-  checking: boolean;
+  checking: Promise<Found> | null;
 }
 /** How long an answer holds before the next ask checks again. */
 const fresh_ms = 3000;
@@ -69,35 +70,37 @@ const max_entries = 512;
 export class Resolver {
   private entries = new Map<string, Entry>();
   /** The checks in flight, for tests to wait on. */
-  checks = new Set<Promise<void>>();
+  checks = new Set<Promise<Found>>();
   constructor(
     private wake: () => void,
     private files: fileAccess.Files,
   ) {}
-  get(ref: Ref, cwd: string, now = Date.now()): Status {
+  get(ref: Ref, cwd: string, { now = Date.now(), fresh = false } = {}): Status {
     const key = `${cwd}\0${ref.path}`;
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= max_entries) this.entries.delete(this.entries.keys().next().value!);
-      entry = { status: { kind: "pending" }, at: now, checking: false };
+      entry = { status: null, at: now, checking: null };
       this.entries.set(key, entry);
     }
-    if (!entry.checking && (entry.status.kind === "pending" || now - entry.at >= fresh_ms)) {
-      entry.checking = true;
+    if (!entry.checking && (entry.status === null || now - entry.at >= fresh_ms)) {
       entry.at = now;
       const check = this.check(entry, ref.path, cwd);
+      entry.checking = check;
       this.checks.add(check);
       void check.finally(() => this.checks.delete(check));
     }
-    return entry.status;
+    if (entry.status && !(fresh && entry.checking)) return entry.status;
+    return { kind: "pending", ready: entry.checking! };
   }
-  private async check(entry: Entry, path: string, cwd: string): Promise<void> {
+  private async check(entry: Entry, path: string, cwd: string): Promise<Found> {
     const info = await this.files.find(path, cwd).catch(() => null);
-    const found: Status = info ? { kind: "file", path: info.path, size: info.size } : { kind: "missing" };
-    entry.checking = false;
+    const found: Found = info ? { kind: "file", path: info.path, size: info.size } : { kind: "missing" };
+    entry.checking = null;
     const before = entry.status;
     entry.status = found;
-    if (before.kind !== found.kind || (before.kind === "file" && found.kind === "file" && before.path !== found.path))
+    if (before?.kind !== found.kind || (before.kind === "file" && found.kind === "file" && before.path !== found.path))
       this.wake();
+    return found;
   }
 }

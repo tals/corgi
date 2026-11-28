@@ -1,6 +1,7 @@
 //! The viewer's terminal-protocol mechanics behind the native boundary:
 //! Corgi's own Zig with Ghostty, as the Zig viewer runs them. See
 //! native/viewer_bridge.zig.
+import type * as wrappedLink from "./wrapped_link";
 import * as telemetry from "./telemetry";
 import type { Pointer } from "bun:ffi";
 import { n, ptr } from "./native_ffi";
@@ -93,8 +94,27 @@ export function rows(
   h: number,
   dimmed: boolean,
   hovered: bigint | null,
+  overlay?: wrappedLink.Target,
 ): string {
-  const size = Number(n.viewer_rows(handle as Pointer, pane, x, y, w, h, dimmed, hovered !== null, hovered ?? 0n));
+  const spans = overlay ? new Uint16Array(overlay.spans.flatMap(s => [s.row, s.start, s.end])) : spare_row;
+  const uri = overlay && !overlay.path ? Buffer.from(overlay.uri) : null;
+  const size = Number(
+    n.viewer_rows(
+      handle as Pointer,
+      pane,
+      x,
+      y,
+      w,
+      h,
+      dimmed,
+      hovered !== null,
+      hovered ?? 0n,
+      ptr(spans),
+      overlay?.spans.length ?? 0,
+      ptr(uri ?? spare_row),
+      uri?.length ?? 0,
+    ),
+  );
   return take(size).toString();
 }
 /** The render state's cursor in the viewport; only a visible one when `visible`. */

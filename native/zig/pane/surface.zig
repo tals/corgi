@@ -32,14 +32,7 @@ pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) 
         allocator.free(lines);
     }
     for (lines, 0..) |*line, row| {
-        const cached = &t.surface_rows.rows[row];
-        if (!cached.valid) {
-            cached.out.clearRetainingCapacity();
-            try writeRow(&cached.out.writer, state, t.hyperlinks(), id, row, state.cols, false);
-            cached.valid = true;
-            t.surface_rows.formatted +%= 1;
-        } else t.surface_rows.reused +%= 1;
-        line.* = try allocator.dupe(u8, cached.out.written());
+        line.* = try allocator.dupe(u8, try canonicalRow(t, id, row));
         used += 1;
     }
     return .{
@@ -53,11 +46,32 @@ pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) 
     };
 }
 
+fn canonicalRow(t: *terminal.Terminal, pane: PaneId, row: usize) ![]const u8 {
+    const cached = &t.surface_rows.rows[row];
+    if (!cached.valid) {
+        cached.out.clearRetainingCapacity();
+        try writeRow(&cached.out.writer, &t.render, t.hyperlinks(), pane, row, t.render.cols, false);
+        cached.valid = true;
+        t.surface_rows.formatted +%= 1;
+    } else t.surface_rows.reused +%= 1;
+    return cached.out.written();
+}
+
+fn writeCellText(w: *std.Io.Writer, cells: std.MultiArrayList(vt.RenderState.Cell), col: usize) !void {
+    const cell = cells.items(.raw)[col];
+    try w.printUnicodeCodepoint(cell.codepoint());
+    if (cell.content_tag == .codepoint_grapheme) for (cells.items(.grapheme)[col]) |extra| try w.printUnicodeCodepoint(extra);
+}
+
 pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool) !void {
     return writeRowHovered(w, state, links, pane, row, cols, dimmed, null);
 }
 
 pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
+    return writeRowOverlay(w, state, links, pane, row, cols, dimmed, hovered, null);
+}
+
+pub fn writeRowOverlay(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64, overlay: ?hyperlink.Link) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -72,7 +86,7 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         while (link_index < links.len and links[link_index].row == row and links[link_index].end <= col) link_index += 1;
         const at_link = link_index < links.len and links[link_index].row == row and
             links[link_index].start <= col and col < links[link_index].end;
-        const link: ?hyperlink.Link = if (!style.flags.invisible and at_link) links[link_index] else null;
+        const link: ?hyperlink.Link = if (style.flags.invisible) null else if (overlay != null and overlay.?.start <= col and col < overlay.?.end) overlay else if (at_link) links[link_index] else null;
         const link_id: ?u64 = if (link) |value| value.id else null;
         if (hovered != null and link_id == hovered) style.flags.underline = .single;
         // A path found in plain text stays Corgi's: the host can't open a relative one.
@@ -106,13 +120,7 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         }
         const cp = cell.codepoint();
         const blank = cp == 0 or cp == vt.kitty.graphics.unicode.placeholder or style.flags.invisible;
-        var bytes: [4]u8 = undefined;
-        const len = try std.unicode.utf8Encode(if (blank) ' ' else cp, &bytes);
-        try w.writeAll(bytes[0..len]);
-        if (cell.content_tag == .codepoint_grapheme and !blank) for (cells.items(.grapheme)[col]) |extra| {
-            const n = try std.unicode.utf8Encode(extra, &bytes);
-            try w.writeAll(bytes[0..n]);
-        };
+        if (blank) try w.writeByte(' ') else try writeCellText(w, cells, col);
     }
     if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
     try w.writeAll("\x1b[0m");
@@ -200,15 +208,8 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
     const screen = t.vt.screens.active;
     const pages = &screen.pages;
     const bottom = pages.total_rows -| t.vt.rows;
-    const saved = t.borrowViewport();
-    const synchronized = t.vt.modes.get(.synchronized_output);
-    const borrowed = !synchronized and (offset != null or pages.viewport != .active or saved.selection != null);
-    defer if (borrowed) saved.restore();
-    if (borrowed) {
-        screen.selection = null;
-        if (offset) |row| t.vt.scrollViewport(.{ .row = row }) else t.vt.scrollViewport(.bottom);
-        t.vt.flags.dirty.clear = true;
-    }
+    const saved = borrowRenderViewport(t, offset);
+    defer if (saved) |v| v.restore();
     return .{
         .surface = try capture(allocator, id, t),
         .stamp = stamp(t, offset),
@@ -217,6 +218,57 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
         .modes = modes(t),
     };
 }
+fn borrowRenderViewport(t: *terminal.Terminal, offset: ?usize) ?terminal.Terminal.BorrowedViewport {
+    const saved = t.borrowViewport();
+    if (t.vt.modes.get(.synchronized_output) or (offset == null and t.vt.screens.active.pages.viewport == .active and saved.selection == null)) return null;
+    t.vt.screens.active.selection = null;
+    if (offset) |row| t.vt.scrollViewport(.{ .row = row }) else t.vt.scrollViewport(.bottom);
+    t.vt.flags.dirty.clear = true;
+    return saved;
+}
+
+const LinkRow = struct { row: usize, wrap: bool, continued: bool, cells: []const []const u8, line: ?[]const u8 };
+
+/// Actual cells near a pointer. OSC 8 and concealed cells are barriers even when
+/// their labels look like paths. Empty strings occupy the spacer of a wide cell.
+pub fn linkWindow(allocator: std.mem.Allocator, t: *terminal.Terminal, offset: ?usize, x: usize, y: usize, pane: PaneId, verify: bool) ![]const LinkRow {
+    const saved = borrowRenderViewport(t, offset);
+    defer if (saved) |v| v.restore();
+    try t.updateRender();
+    const state = &t.render;
+    if (x >= state.cols or y >= state.rows) return &.{};
+    try t.surface_rows.prepare(@backingInt(pane), state.cols, state.rows);
+    const first = y -| 7;
+    const rows = try allocator.alloc(LinkRow, @min(state.rows, y + 8) - first);
+    for (rows, first..) |*dest, row| {
+        const cells = state.row_data.items(.cells)[row];
+        const values = try allocator.alloc([]const u8, cells.len);
+        var points = cells.len;
+        for (cells.items(.raw), 0..) |cell, col| {
+            if (cell.content_tag == .codepoint_grapheme) points += cells.items(.grapheme)[col].len;
+        }
+        // Fixed storage keeps earlier cell slices valid as the rest of the row is written.
+        var text: std.Io.Writer = .fixed(try allocator.alloc(u8, 4 * points));
+        for (cells.items(.raw), values, 0..) |cell, *value, col| {
+            if (cell.wide == .spacer_head or cell.wide == .spacer_tail) {
+                value.* = "";
+            } else if (cell.hyperlink or (cell.style_id != 0 and cells.items(.style)[col].flags.invisible)) {
+                value.* = "\x00";
+            } else if (cell.codepoint() == 0) {
+                value.* = " ";
+            } else {
+                const start = text.end;
+                try writeCellText(&text, cells, col);
+                value.* = text.buffer[start..text.end];
+            }
+        }
+        const line = if (verify or row == y) try allocator.dupe(u8, try canonicalRow(t, pane, row)) else null;
+        const raw = state.row_data.items(.raw)[row];
+        dest.* = .{ .row = row, .wrap = raw.wrap, .continued = raw.wrap_continuation, .cells = values, .line = line };
+    }
+    return rows;
+}
+
 /// How a viewer encodes input for the program in `t`.
 pub fn modes(t: *const terminal.Terminal) Modes {
     return .{
@@ -266,7 +318,7 @@ test "named hyperlinks survive capture and a second terminal render without leak
     defer arena.deinit();
     const t = try terminal.Terminal.create(32, 3);
     defer t.destroy();
-    t.feed("\x1b]8;id=docs;https://example.com/docs\x1b\\\x1b[4mDocs 界\x1b]8;;\x1b\\\x1b[0m plain");
+    t.feed("\x1b]8;id=docs;https://example.com/docs\x1b\\\x1b[4mDocs 界\x1b]8;;\x1b\\\x1b[0m plaine\xcc\x81\x1b[8mX\x1b[0m");
     const captured = try capture(arena.allocator(), @enumFromInt(7), t);
     try std.testing.expect(std.mem.indexOf(u8, captured.lines[0], ";https://example.com/docs\x1b\\") != null);
     const mirror = try terminal.Terminal.create(32, 3);
@@ -285,6 +337,16 @@ test "named hyperlinks survive capture and a second terminal render without leak
     // A redraw of the same source retains the same emitted identity.
     const repeated = try capture(arena.allocator(), @enumFromInt(7), t);
     try std.testing.expectEqualStrings(captured.lines[0], repeated.lines[0]);
+    const reused = t.surface_rows.reused;
+    const window = try linkWindow(arena.allocator(), t, null, 0, 0, captured.pane, false);
+    try std.testing.expectEqual(reused + 1, t.surface_rows.reused);
+    try std.testing.expectEqualStrings(captured.lines[0], window[0].line.?);
+    try std.testing.expect(window[1].line == null);
+    const cells = window[0].cells;
+    try std.testing.expectEqualStrings("\x00", cells[5]);
+    try std.testing.expectEqualStrings("", cells[6]);
+    try std.testing.expectEqualStrings("e\xcc\x81", cells[13]);
+    try std.testing.expectEqualStrings("\x00", cells[14]);
 }
 
 test "hyperlinks retain completed frame during synchronized output and disappear on overwrite" {
@@ -508,6 +570,8 @@ test "canonical cache keeps borrowed viewports independent and snapshots owned" 
         const view = try captureView(arena.allocator(), @enumFromInt(1), t, offset);
         if (offset) |row| reference.vt.scrollViewport(.{ .row = row }) else reference.vt.scrollViewport(.bottom);
         try expectCanonical(@enumFromInt(1), reference, view.surface);
+        const rows = try linkWindow(arena.allocator(), t, offset, 1, 1, @enumFromInt(1), true);
+        for (rows) |row| try std.testing.expectEqualStrings(view.surface.lines[row.row], row.line.?);
         try std.testing.expectEqualDeep(viewport, t.vt.screens.active.pages.viewport);
         try std.testing.expect(t.vt.screens.active.selection.?.eql(selection.?));
     }

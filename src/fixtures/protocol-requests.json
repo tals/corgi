@@ -57,6 +57,7 @@
     "needle": "x",
     "skip": 1
   },
+  "viewer.wrapped_link": { "pane": 1, "fingerprint": 1, "identity": 1, "revision": 2, "binding": 0, "x": 1, "y": 2 },
   "viewer.pick": {
     "pane": 1,
     "offset": 0,

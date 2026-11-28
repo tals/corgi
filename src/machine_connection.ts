@@ -1026,9 +1026,6 @@ export class Endpoint {
         // a chat moved into a pane take it too, and never the control
         // connection, opening it on a machine not shown, such as a prompt
         // conversation's.
-        const contents = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(
-          op,
-        );
         let conn: Connection | null, keepalive: ReturnType<typeof setInterval> | undefined;
         if (
           [
@@ -1057,7 +1054,7 @@ export class Endpoint {
           // with no stream on it hears nothing else meanwhile.
           keepalive = setInterval(() => void data.request("ping").catch(() => {}), this.review_ping_ms);
           conn = data;
-        } else conn = contents && this.opened ? (this.data?.channel ?? this.checked) : this.checked;
+        } else conn = protocol.readsPane(op) && this.opened ? (this.data?.channel ?? this.checked) : this.checked;
         if (!conn) throw Error("StaleConnection");
         try {
           const reply = await conn.request(op, ...args);

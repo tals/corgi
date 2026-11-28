@@ -257,6 +257,8 @@ export async function receive(
   const shown = machine === view.machine;
   if (reply.session) view.receiveSnapshot(reply.session, machine);
   machine.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
+  if (reply.wrapped_notice)
+    machine.runtime.pane(reply.wrapped_notice.pane)?.terminal.recheckLink(reply.wrapped_notice.seq);
   if (reply.resources) machine.runtime.receiveResources(reply.resources);
   machine.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   machine.viewer_id = reply.viewer ?? 0;

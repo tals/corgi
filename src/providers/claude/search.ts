@@ -14,8 +14,11 @@ function command(text: string): string {
     args = /<command-args>([^]*?)<\/command-args>/.exec(text)?.[1].trim() ?? "";
   return name && args ? `${name} ${args}` : "";
 }
-const conversational = (v: Record<string, any>) =>
-  (v.type === "user" || v.type === "assistant") && !v.isMeta && !v.isCompactSummary && !v.isSidechain;
+const conversational = (v: Record<string, any>, session?: string) =>
+  (v.type === "user" || v.type === "assistant") &&
+  !v.isMeta &&
+  !v.isCompactSummary &&
+  (session === undefined ? !v.isSidechain : (v.isSidechain ? v.agentId : v.sessionId) === session);
 /** A command the user ran with `!`, and its output, whose record names the command's as its parent. */
 function userShell(v: Record<string, any>, text: string, ref: string): ToolRecord[] {
   const input = /^<bash-input>([^]*?)<\/bash-input>/.exec(text);
@@ -35,10 +38,10 @@ function userShell(v: Record<string, any>, text: string, ref: string): ToolRecor
     .join("\n");
   return [tools.record(output, v.timestamp, ref, tools.info("result", tools.userShell, v.parentUuid))];
 }
-function toolRecords(value: unknown, ref: string): ToolRecord[] {
+function toolRecords(value: unknown, ref: string, session?: string): ToolRecord[] {
   const v = tools.object(value),
     message = tools.object(v.message);
-  if (!conversational(v)) return [];
+  if (!conversational(v, session)) return [];
   const shell = v.type === "user" ? userShell(v, tools.content(message.content).trimStart(), ref) : [];
   if (shell.length) return shell;
   if (!Array.isArray(message.content)) return [];
@@ -79,10 +82,10 @@ export const conversations = search.transcripts({
     if (meta.isSidechain || meta.entrypoint === "sdk-cli") return "excluded";
     return { session: String(meta.id || meta.sessionId), cwd: String(meta.cwd) };
   },
-  messages(value, ref) {
+  messages(value, ref, session) {
     const v = tools.object(value),
       message = tools.object(v.message);
-    if (!conversational(v)) return [];
+    if (!conversational(v, session)) return [];
     const role = message.role ?? v.type;
     let text = tools.content(message.content);
     if (role === "user" && /^<command-(?:name|message)>/.test(text.trimStart())) text = command(text);

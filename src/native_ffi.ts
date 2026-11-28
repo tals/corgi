@@ -39,7 +39,10 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
     returns: "i32",
   },
   viewer_update_render: { args: ["ptr"], returns: "i32" },
-  viewer_rows: { args: ["ptr", "u32", "u16", "u16", "u16", "u16", "bool", "bool", "u64"], returns: FFIType.i64_fast },
+  viewer_rows: {
+    args: ["ptr", "u32", "u16", "u16", "u16", "u16", "bool", "bool", "u64", "ptr", "usize", "ptr", "usize"],
+    returns: FFIType.i64_fast,
+  },
   viewer_cursor: { args: ["ptr", "bool"], returns: FFIType.i64_fast },
   viewer_mouse_event: { args: ["ptr"], returns: "i32" },
   viewer_mode: { args: ["ptr", "u32"], returns: "bool" },

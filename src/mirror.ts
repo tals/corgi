@@ -1,6 +1,7 @@
 //! A viewer's private projection of shared session organization and pane
 //! surfaces. These terminals are framebuffers: no child process or PTY is
 //! created here. Mirrors mirror.zig.
+import * as wrappedLink from "./wrapped_link";
 import * as startup from "./startup";
 import type * as rpc_http from "./rpc_http";
 import { Terminal as NativeTerminal } from "./pane/terminal";
@@ -79,6 +80,14 @@ export interface Link {
   /** A file path found in plain text (see `file_ref.ts`). */
   path?: boolean;
 }
+type ResolvedLink = wrappedLink.Target & { id: bigint };
+interface LinkLookup extends wrappedLink.Span {
+  regions: wrappedLink.Span[];
+  target: ResolvedLink | null;
+}
+function covers(span: wrappedLink.Span, x: number, y: number): boolean {
+  return span.row === y && span.start <= x && x < span.end;
+}
 interface Selection {
   x: number;
   y: number;
@@ -89,6 +98,28 @@ interface Selection {
 export function joinRows(text: string): string {
   return text.replace(/\s*\n\s*/g, "");
 }
+
+/** Only changes to the cells used for a hit test invalidate its result. */
+function sameLinkWindow(before: surface.View, after: surface.View | null, y?: number): boolean {
+  if (before === after) return true;
+  if (
+    !after ||
+    before.stamp.identity !== after.stamp.identity ||
+    before.offset !== after.offset ||
+    before.stamp.offset !== after.stamp.offset ||
+    before.surface.cols !== after.surface.cols ||
+    before.surface.rows !== after.surface.rows
+  )
+    return false;
+  if (y !== undefined) {
+    for (let row = Math.max(0, y - 7); row < Math.min(before.surface.rows, y + 8); row++)
+      if (before.surface.lines[row] !== after.surface.lines[row]) return false;
+  }
+  return true;
+}
+
+// One evidence watch per viewer connection follows its most recent probe.
+const watched = new WeakMap<Transport, Terminal>();
 
 export class Terminal {
   private native: NativeTerminal | null = null;
@@ -119,6 +150,13 @@ export class Terminal {
   private paste_split = false;
   private links: Link[] | null = null;
   private installed: surface.View | null = null;
+  private link_context: { binding: bigint; cwd: string; phrases: boolean } | null = null;
+  private last_link_recheck = 0;
+  /** A transport failure backs off background hover requests on this pane. */
+  private hover_retry_at = 0;
+  private lookup: LinkLookup | null = null;
+  private pending_link: Promise<ResolvedLink | null> | null = null;
+  private resting: { x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
 
@@ -160,7 +198,153 @@ export class Terminal {
   }
   hyperlinks(): Link[] {
     this.updateRender();
-    return (this.links ??= this.inner.hyperlinks());
+    if (!this.links) {
+      const native = this.inner.hyperlinks(),
+        target = this.lookup?.target;
+      this.links = target
+        ? [
+            ...target.spans.map(span => ({ ...span, uri: target.uri, path: target.path, id: target.id })),
+            ...native.filter(
+              link => !target.spans.some(s => s.row === link.row && s.start < link.end && link.start < s.end),
+            ),
+          ]
+        : native;
+    }
+    return this.links;
+  }
+  private clearLinkLookup(): void {
+    this.lookup = null;
+    this.links = null;
+    this.rendered = null;
+    if (this.resting) clearTimeout(this.resting.timer);
+    this.resting = null;
+  }
+  linkContext(binding: bigint, enabled: boolean, cwd: string, phrases = false): void {
+    if (
+      enabled
+        ? this.link_context?.binding === binding &&
+          this.link_context.cwd === cwd &&
+          this.link_context.phrases === phrases
+        : !this.link_context
+    )
+      return;
+    this.link_context = enabled ? { binding, cwd, phrases } : null;
+    this.hover_retry_at = 0;
+    this.clearLinkLookup();
+  }
+  recheckLink(seq: number): void {
+    if (this.last_link_recheck === seq) return;
+    this.last_link_recheck = seq;
+    this.clearLinkLookup();
+  }
+  resolvedFile(uri: string): string | null {
+    const target = this.lookup?.target;
+    return target?.uri === uri ? target.file : null;
+  }
+  private answered(x: number, y: number): boolean {
+    const lookup = this.lookup;
+    return !!lookup && (covers(lookup, x, y) || !!lookup.target?.spans.some(s => covers(s, x, y)));
+  }
+  /** Wait for pointer travel to settle before any lookups, including over SSH. */
+  hoverLink(x: number, y: number, wanted: () => boolean, wake: () => void): void {
+    if (
+      !this.link_context ||
+      this.closed ||
+      this.holding_selection ||
+      Date.now() < this.hover_retry_at ||
+      this.answered(x, y) ||
+      (this.resting?.x === x && this.resting.y === y) ||
+      this.pending_link
+    )
+      return;
+    if (this.resting) clearTimeout(this.resting.timer);
+    this.resting = {
+      x,
+      y,
+      timer: setTimeout(() => {
+        this.resting = null;
+        if (wanted()) void this.probeLink(x, y, wake);
+      }, 75),
+    };
+  }
+  private linkRegions(view: surface.View, y: number, phrases: boolean): wrappedLink.Span[] {
+    return this.lookup?.row === y ? this.lookup.regions : wrappedLink.regions(view.surface.lines, y, phrases);
+  }
+  /** Return a pending hit only for plausible cells. Release, drag and other
+   * input can proceed while the pane's daemon resolves the pressed text. */
+  pressLink(
+    x: number,
+    y: number,
+    wake: () => void,
+    wanted = () => true,
+  ): Promise<(Link & { file?: string | null }) | null> | null {
+    const view = this.installed,
+      context = this.link_context;
+    const cached = !this.pending_link && this.answered(x, y);
+    if (!view || !context || this.closed || (cached && this.lookup?.target)) return null;
+    const regions = this.linkRegions(view, y, context.phrases);
+    if (!regions.some(s => s.start <= x && x < s.end)) return null;
+    // A file can appear without changing these rows. Retry a completed miss on a press.
+    if (cached) this.lookup = null;
+    const current = () =>
+      wanted() && !this.closed && context === this.link_context && sameLinkWindow(view, this.installed, y);
+    return this.probeLink(x, y, wake, regions, current).then(target => {
+      if (!current()) return null;
+      const span = target?.spans.find(s => covers(s, x, y));
+      if (target && span) return { ...span, uri: target.uri, path: target.path, id: target.id, file: target.file };
+      return this.hyperlinks().find(link => covers(link, x, y)) ?? null;
+    });
+  }
+  async probeLink(x: number, y: number, wake: () => void, regions?: wrappedLink.Span[], current?: () => boolean) {
+    while (this.pending_link) await this.pending_link;
+    if (current && !current()) return null;
+    const view = this.installed,
+      context = this.link_context;
+    if (!view || !context || this.closed || this.holding_selection) return null;
+    if (this.answered(x, y)) return this.lookup?.target ?? null;
+    regions ??= this.linkRegions(view, y, context.phrases);
+    const lookup: LinkLookup = { row: y, start: x, end: x + 1, regions, target: null };
+    if (this.lookup?.target) {
+      this.links = null;
+      this.rendered = null;
+    }
+    this.lookup = lookup;
+    if (!regions.some(s => s.start <= x && x < s.end)) return null;
+    const other = watched.get(this.conn);
+    if (other && other !== this) other.clearLinkLookup();
+    watched.set(this.conn, this);
+    const stamp = view.stamp;
+    const pending = call(this.conn, "viewer.wrapped_link", {
+      pane: this.id,
+      x,
+      y,
+      identity: stamp.identity,
+      revision: stamp.revision,
+      offset: stamp.offset === null ? null : BigInt(stamp.offset),
+      binding: context.binding,
+      fingerprint: wrappedLink.fingerprint(view.surface.lines.slice(Math.max(0, y - 7), y + 8)),
+    })
+      .then(({ target, range }) => {
+        if (this.lookup !== lookup || this.closed) return null;
+        this.hover_retry_at = 0;
+        if (!target && range) Object.assign(lookup, range);
+        lookup.target = target ? { ...target, id: BigInt(Bun.hash(JSON.stringify([target.uri, target.spans]))) } : null;
+        this.links = null;
+        this.rendered = null;
+        return lookup.target;
+      })
+      .catch(() => {
+        if (this.lookup === lookup) {
+          this.lookup = null;
+          this.hover_retry_at = Date.now() + 5000;
+        }
+        return null;
+      });
+    this.pending_link = pending;
+    const target = await pending;
+    if (this.pending_link === pending) this.pending_link = null;
+    if (!this.closed) wake();
+    return target;
   }
   updateRender(): void {
     if (!this.render_dirty) return;
@@ -185,6 +369,8 @@ export class Terminal {
   destroy(): void {
     if (this.closed) return;
     this.closed = true;
+    if (watched.get(this.conn) === this) watched.delete(this.conn);
+    this.clearLinkLookup();
     this.native?.destroy();
     this.native = null;
     this.pending = [];
@@ -245,6 +431,16 @@ export class Terminal {
     y: number,
     to: { x: number; y: number } | null = null,
   ): Promise<protocol.PickResult | null> {
+    const link = this.lookup?.target;
+    if (unit === "word" && !to && link && !link.path && link.spans.some(s => covers(s, x, y))) {
+      const first = link.spans[0],
+        last = link.spans.at(-1)!;
+      return {
+        match: { x: first.start, y: first.row, end_x: last.end - 1, end_y: last.row },
+        shown: link.uri,
+        copy: link.uri,
+      };
+    }
     try {
       const reply = await call(this.conn, "viewer.pick", {
         pane: this.id,
@@ -383,6 +579,7 @@ export class Terminal {
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
     const previous = this.installed;
+    if (!previous || !sameLinkWindow(previous, view, this.lookup?.row)) this.clearLinkLookup();
     let changed: Uint16Array | undefined;
     if (
       previous &&
@@ -452,9 +649,23 @@ export class Terminal {
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
     this.updateRender();
-    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
+    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`,
+      overlay = this.lookup?.target ?? undefined;
     if (this.rendered?.key !== key)
-      this.rendered = { key, rows: viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered) };
+      this.rendered = {
+        key,
+        rows: viewerNative.rows(
+          this.handle,
+          pane,
+          x,
+          y,
+          w,
+          h,
+          dimmed,
+          hovered,
+          overlay?.id === hovered ? overlay : undefined,
+        ),
+      };
     return this.rendered.rows;
   }
 }
@@ -808,6 +1019,12 @@ export class Runtime {
           term = new Terminal(conn, info.id, info.cols, info.rows);
           created.push(term);
         }
+        term.linkContext(
+          BigInt(info.binding ?? 0n),
+          value.wrapped_links === true,
+          info.agent?.cwd || info.cwd || "",
+          !!info.agent?.conversation,
+        );
         const was_restoring = previous ? previous.restoring.length > 0 && !previous.dormant : false;
         panes.push({
           id: info.id,
