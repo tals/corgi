@@ -376,6 +376,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Add a shortcut with +"]': () => `用 + 添加快捷键`,
     '["Add agent"]': () => `添加智能体`,
     '["Add to the list"]': () => `添加到列表`,
+    '["After Trimmy: github.com/steipete/Trimmy"]': () => `灵感来自 Trimmy：github.com/steipete/Trimmy`,
     '["Agent"]': () => `智能体`,
     '["Agent controls (--json prints the daemon\'s reply as JSON):"]': () =>
       `智能体控制（--json 将守护进程的响应以 JSON 输出）：`,
@@ -399,6 +400,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Also choose workspace"]': () => `也可选择工作区`,
     '["Also focus"]': () => `也可聚焦`,
     '["Also works directly"]': () => `也可直接使用`,
+    '["Alt-drag copies exactly as shown."]': () => `按住 Alt 拖动则按原样复制。`,
     '["Animal Style keeps Corgi\'s colors."]': () => `Animal Style 保留 Corgi 的配色。`,
     '["Animal Style takes its colors from them."]': () => `Animal Style 使用终端的配色。`,
     '["Answers in ","."]': v0 => `响应耗时 ${v0}。`,
@@ -499,6 +501,8 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Copied"]': () => `已复制`,
     '["Copied "," note."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copied "," notes."]': v0 => `已复制 ${v0} 条批注。`,
+    '["Copied as one line"]': () => `已复制为一行`,
+    '["Copied to clipboard"]': () => `已复制到剪贴板`,
     '["Copies the conversation into a new tab"]': () => `将对话复制到新标签页`,
     '["Copies the workspaces; their processes stay in Herdr."]': () => `复制工作区；进程继续在 Herdr 中运行。`,
     '["Copy"]': () => `复制`,
@@ -565,6 +569,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Down"]': () => `下`,
     '["Download and apply an update"]': () => `下载并应用更新`,
     '["Download: "]': () => `下载：`,
+    '["Drags copy wrapped commands as one line."]': () => `拖动复制时，折行的命令合为一行。`,
     '["Drop an agent here"]': () => `将智能体拖到这里`,
     '["Duplicate variable: ",""]': v0 => `重复变量：${v0}`,
     '["EDITED"]': () => `上次修改`,
@@ -822,6 +827,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Operations never auto-start a server."]': () => `操作不会自动启动服务端。`,
     '["Ordered key sets belong to an indexed action, such as tab"]': () => `有序按键组仅适用于 tab 等按编号操作`,
     '["Other agents"]': () => `其他智能体`,
+    '["Other text loses the indent its lines share."]': () => `其他文本去掉各行共同的缩进。`,
     '["Other…"]': () => `其他…`,
     '["Over SSH, images paste only from terminals that send them"]': () =>
       `通过 SSH 连接时，只有支持发送图片的终端才能粘贴图片`,
@@ -986,6 +992,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Signed out"]': () => `已退出登录`,
     '["Signs out and deletes its folder"]': () => `退出登录并删除其文件夹`,
     '["Since start:"]': () => `本次启动以来：`,
+    '["Smart Copy"]': () => `智能复制`,
     '["Smart Links"]': () => `智能链接`,
     '["Some pane or tab details couldn\'t be read"]': () => `部分窗格或标签页详情无法读取`,
     '["Sort"]': () => `排序`,
@@ -1862,6 +1869,7 @@ ${v1} 使用该账号。
     '["Add a shortcut with +"]': () => `+でショートカットを追加`,
     '["Add agent"]': () => `エージェントを追加`,
     '["Add to the list"]': () => `一覧に追加`,
+    '["After Trimmy: github.com/steipete/Trimmy"]': () => `Trimmyを参考にしています：github.com/steipete/Trimmy`,
     '["Agent"]': () => `エージェント`,
     '["Agent controls (--json prints the daemon\'s reply as JSON):"]': () =>
       `エージェント操作（--jsonでデーモンの応答をJSON出力）：`,
@@ -1887,6 +1895,7 @@ ${v1} 使用该账号。
     '["Also choose workspace"]': () => `ワークスペースの選択も可`,
     '["Also focus"]': () => `こちらでも選択`,
     '["Also works directly"]': () => `直接入力も可`,
+    '["Alt-drag copies exactly as shown."]': () => `Altを押しながらドラッグすると表示どおりにコピーします。`,
     '["Animal Style keeps Corgi\'s colors."]': () => `Animal StyleではCorgiの配色を使います。`,
     '["Animal Style takes its colors from them."]': () => `Animal Styleにもこの配色を使います。`,
     '["Answers in ","."]': v0 => `応答時間：${v0}。`,
@@ -1990,6 +1999,8 @@ ${v1} 使用该账号。
     '["Copied"]': () => `コピーしました`,
     '["Copied "," note."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copied "," notes."]': v0 => `${v0}件のコメントをコピーしました。`,
+    '["Copied as one line"]': () => `1行にしてコピーしました`,
+    '["Copied to clipboard"]': () => `クリップボードにコピーしました`,
     '["Copies the conversation into a new tab"]': () => `会話を新しいタブにコピーします`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `ワークスペースをコピーします。プロセスはHerdrに残ります。`,
@@ -2061,6 +2072,7 @@ ${v1} 使用该账号。
     '["Down"]': () => `下`,
     '["Download and apply an update"]': () => `更新をダウンロードして適用`,
     '["Download: "]': () => `ダウンロード：`,
+    '["Drags copy wrapped commands as one line."]': () => `ドラッグで、折り返されたコマンドを1行にしてコピーします。`,
     '["Drop an agent here"]': () => `ここにエージェントをドロップ`,
     '["Duplicate variable: ",""]': v0 => `変数が重複しています：${v0}`,
     '["EDITED"]': () => `最終編集`,
@@ -2324,6 +2336,7 @@ ${v1} 使用该账号。
     '["Ordered key sets belong to an indexed action, such as tab"]': () =>
       `順序付きキーセットはタブなど、番号で指定する操作にのみ使えます`,
     '["Other agents"]': () => `ほかのエージェント`,
+    '["Other text loses the indent its lines share."]': () => `その他のテキストは共通のインデントを除きます。`,
     '["Other…"]': () => `その他…`,
     '["Over SSH, images paste only from terminals that send them"]': () =>
       `SSH 接続では、画像を送信できるターミナルからのみ貼り付けられます`,
@@ -2494,6 +2507,7 @@ ${v1} 使用该账号。
     '["Signed out"]': () => `未ログイン`,
     '["Signs out and deletes its folder"]': () => `ログアウトしてフォルダーを削除します`,
     '["Since start:"]': () => `起動以降：`,
+    '["Smart Copy"]': () => `スマートコピー`,
     '["Smart Links"]': () => `スマートリンク`,
     '["Some pane or tab details couldn\'t be read"]': () => `一部のペインやタブの詳細を読み取れませんでした`,
     '["Sort"]': () => `並べ替え`,
@@ -3375,6 +3389,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Add a shortcut with +"]': () => `+로 단축키 추가`,
     '["Add agent"]': () => `에이전트 추가`,
     '["Add to the list"]': () => `목록에 추가`,
+    '["After Trimmy: github.com/steipete/Trimmy"]': () => `Trimmy에서 착안: github.com/steipete/Trimmy`,
     '["Agent"]': () => `에이전트`,
     '["Agent controls (--json prints the daemon\'s reply as JSON):"]': () =>
       `에이전트 제어(--json은 데몬 응답을 JSON으로 출력):`,
@@ -3399,6 +3414,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Also choose workspace"]': () => `작업 공간 선택도 가능`,
     '["Also focus"]': () => `포커스 이동도 가능`,
     '["Also works directly"]': () => `직접 사용도 가능`,
+    '["Alt-drag copies exactly as shown."]': () => `Alt를 누른 채 드래그하면 보이는 그대로 복사합니다.`,
     '["Animal Style keeps Corgi\'s colors."]': () => `Animal Style은 Corgi의 색상을 유지합니다.`,
     '["Animal Style takes its colors from them."]': () => `Animal Style은 터미널 색상을 사용합니다.`,
     '["Answers in ","."]': v0 => `응답 시간: ${v0}.`,
@@ -3502,6 +3518,8 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Copied"]': () => `복사됨`,
     '["Copied "," note."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copied "," notes."]': v0 => `메모 ${v0}개를 복사했습니다.`,
+    '["Copied as one line"]': () => `한 줄로 복사됨`,
+    '["Copied to clipboard"]': () => `클립보드에 복사됨`,
     '["Copies the conversation into a new tab"]': () => `대화를 새 탭으로 복사합니다`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `작업 공간을 복사합니다. 프로세스는 Herdr에서 계속 실행됩니다.`,
@@ -3573,6 +3591,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Down"]': () => `아래`,
     '["Download and apply an update"]': () => `업데이트 다운로드 후 적용`,
     '["Download: "]': () => `다운로드: `,
+    '["Drags copy wrapped commands as one line."]': () => `드래그하면 줄바꿈된 명령을 한 줄로 복사합니다.`,
     '["Drop an agent here"]': () => `에이전트를 여기로 끌어오세요`,
     '["Duplicate variable: ",""]': v0 => `중복 변수: ${v0}`,
     '["EDITED"]': () => `수정됨`,
@@ -3834,6 +3853,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Ordered key sets belong to an indexed action, such as tab"]': () =>
       `순서가 있는 키 모음은 tab처럼 번호로 선택하는 동작에만 사용할 수 있습니다`,
     '["Other agents"]': () => `다른 에이전트`,
+    '["Other text loses the indent its lines share."]': () => `다른 텍스트는 공통 들여쓰기를 없앱니다.`,
     '["Other…"]': () => `기타…`,
     '["Over SSH, images paste only from terminals that send them"]': () =>
       `SSH에서는 이미지를 전송하는 터미널에서만 이미지를 붙여넣을 수 있습니다`,
@@ -4003,6 +4023,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Signed out"]': () => `로그아웃됨`,
     '["Signs out and deletes its folder"]': () => `로그아웃하고 해당 폴더를 삭제합니다`,
     '["Since start:"]': () => `시작 이후:`,
+    '["Smart Copy"]': () => `스마트 복사`,
     '["Smart Links"]': () => `스마트 링크`,
     '["Some pane or tab details couldn\'t be read"]': () => `일부 패널 또는 탭 정보를 읽지 못함`,
     '["Sort"]': () => `정렬`,
@@ -5305,6 +5326,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Add a shortcut with +"]': () => `Добавьте сочетание кнопкой +`,
     '["Add agent"]': () => `Добавить агента`,
     '["Add to the list"]': () => `Добавить в список`,
+    '["After Trimmy: github.com/steipete/Trimmy"]': () => `По мотивам Trimmy: github.com/steipete/Trimmy`,
     '["Agent"]': () => `Агент`,
     '["Agent controls (--json prints the daemon\'s reply as JSON):"]': () =>
       `Управление агентами (--json выводит ответ сервера в JSON):`,
@@ -5330,6 +5352,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Also choose workspace"]': () => `Также выбрать пространство`,
     '["Also focus"]': () => `Также перейти`,
     '["Also works directly"]': () => `Работает и напрямую`,
+    '["Alt-drag copies exactly as shown."]': () => `Alt+перетаскивание копирует как есть.`,
     '["Animal Style keeps Corgi\'s colors."]': () => `Animal Style сохраняет цвета Corgi.`,
     '["Animal Style takes its colors from them."]': () => `Animal Style использует их цвета.`,
     '["Answers in ","."]': v0 => `Ответ за ${v0}.`,
@@ -5461,6 +5484,8 @@ profile/ID, имя копии или command/N — как в выводе launch
           return `Скопировано ${v0} заметки.`;
       }
     },
+    '["Copied as one line"]': () => `Скопировано одной строкой`,
+    '["Copied to clipboard"]': () => `Скопировано в буфер`,
     '["Copies the conversation into a new tab"]': () => `Копирует диалог в новую вкладку`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `Копирует пространства; процессы остаются в Herdr.`,
@@ -5533,6 +5558,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Down"]': () => `Вниз`,
     '["Download and apply an update"]': () => `Скачать и применить обновление`,
     '["Download: "]': () => `Скачать: `,
+    '["Drags copy wrapped commands as one line."]': () => `Перенесённые команды копируются одной строкой.`,
     '["Drop an agent here"]': () => `Перетащите агента сюда`,
     '["Duplicate variable: ",""]': v0 => `Повторяющаяся переменная: ${v0}`,
     '["EDITED"]': () => `ИЗМЕНЕНО`,
@@ -5811,6 +5837,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Ordered key sets belong to an indexed action, such as tab"]': () =>
       `Упорядоченные наборы клавиш нужны действию с индексом, например tab`,
     '["Other agents"]': () => `Другие агенты`,
+    '["Other text loses the indent its lines share."]': () => `У остального текста убирается общий отступ.`,
     '["Other…"]': () => `Другое…`,
     '["Over SSH, images paste only from terminals that send them"]': () =>
       `Через SSH вставка изображений доступна только из терминалов, которые их отправляют`,
@@ -6006,6 +6033,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Signed out"]': () => `Выход выполнен`,
     '["Signs out and deletes its folder"]': () => `Выходит из аккаунта и удаляет его папку`,
     '["Since start:"]': () => `С начала:`,
+    '["Smart Copy"]': () => `Умное копирование`,
     '["Smart Links"]': () => `Умные ссылки`,
     '["Some pane or tab details couldn\'t be read"]': () => `Не удалось прочитать часть данных о панелях или вкладках`,
     '["Sort"]': () => `Сортировка`,

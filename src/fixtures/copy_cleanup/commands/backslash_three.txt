@@ -1,0 +1,9 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  podman run --rm \
+    -v "$PWD:/work" \
+    ghcr.io/example/tool:latest
+---
+podman run --rm -v "$PWD:/work" ghcr.io/example/tool:latest

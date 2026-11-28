@@ -1,0 +1,9 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  echo foo\
+  bar \
+    --verbose
+---
+echo foobar --verbose

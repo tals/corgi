@@ -1,0 +1,9 @@
+width: 30
+start_x: 2
+first_indent: 2
+
+  curl -fsSL https://raw.examp
+  le.com/acme/tk/main/install.
+  sh | sh
+---
+curl -fsSL https://raw.example.com/acme/tk/main/install.sh | sh

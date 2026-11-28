@@ -1,0 +1,8 @@
+width: 21
+start_x: 2
+first_indent: 2
+
+  cp -r ./src/assets/
+  /var/www/html
+---
+cp -r ./src/assets/ /var/www/html

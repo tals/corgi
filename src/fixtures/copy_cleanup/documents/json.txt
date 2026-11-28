@@ -1,0 +1,15 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  {
+    "name": "web",
+    "ports": [80, 443],
+    "env": { "LOG_LEVEL": "debug" }
+  }
+---
+{
+  "name": "web",
+  "ports": [80, 443],
+  "env": { "LOG_LEVEL": "debug" }
+}

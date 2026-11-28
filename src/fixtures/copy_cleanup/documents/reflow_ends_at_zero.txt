@@ -1,0 +1,9 @@
+width: 20
+start_x: 0
+first_indent: 2
+
+  grep -rn pattern ./src/components/abcd
+  -i
+---
+grep -rn pattern ./src/components/abcd
+-i

@@ -8139,3 +8139,373 @@ function mouseInput(view: any, sequence: string): Promise<void> {
   if (event.kind !== "mouse") throw Error("InvalidMouseFixture");
   return view.mouse(event.mouse);
 }
+
+/** A controller whose focused pane shows a command the harness wrapped onto
+ * two indented rows, the first filling the pane. `drag` presses `button` on
+ * the first row's start, drags with `motion` to the second row and releases;
+ * `copied` is what reached the clipboard once the copy settled. The daemon
+ * reads a drag's cells from the pane's terminal, and answers word and line
+ * picks with `pick`. */
+function copying(mouse_aware = false, pick: object | null = null) {
+  let native: NativeTerminal | null = null;
+  const s: any = new Controller({
+    request: transport(async (op, fields: any) => {
+      if (op === "viewer.pick" && fields.unit === "cell" && native)
+        return { ok: true, ...native.pick("cell", fields.x, fields.y, fields.to_x, fields.to_y, 0) };
+      if (op === "viewer.pick" && pick) return { ok: true, ...pick };
+      throw Error("UnexpectedRequest");
+    }).request,
+  });
+  s.receiveSnapshot(folders("/a", "/b"));
+  s.width = 100;
+  s.height = 30;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  native = NativeTerminal.create(rect.w, rect.h);
+  const filler = "x".repeat(rect.w - 22);
+  if (mouse_aware) native.feed("\x1b[?1000h\x1b[?1006h");
+  native.feed(`  kubectl get pods -n ${filler}\r\n  -o wide`);
+  const term = s.pane(1).terminal;
+  term.receive(native.surface(1));
+  const cell = (x: number, y: number) => `${rect.x + x + 1};${rect.y + y + 1}`;
+  const drag = async (button: number, motion = button | 32, release = button) => {
+    s.clipboard = "";
+    await s.input(bytes(`\x1b[<${button};${cell(0, 0)}M\x1b[<${motion};${cell(8, 1)}M`));
+    const shown = term.selectedText();
+    await s.input(bytes(`\x1b[<${release};${cell(8, 1)}m`));
+    await Bun.sleep(0);
+    return { shown, copied: s.clipboard };
+  };
+  const done = () => {
+    native?.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
+  };
+  return {
+    s,
+    term,
+    daemon: native,
+    rect,
+    cell,
+    drag,
+    done,
+    raw: `  kubectl get pods -n ${filler}\n  -o wide`,
+    flat: `kubectl get pods -n ${filler} -o wide`,
+  };
+}
+
+test("a plain drag copies a wrapped command as one line; Alt or Ctrl at the press copies it raw", async () => {
+  const { drag, raw, flat, done } = copying();
+  try {
+    expect(await drag(0)).toEqual({ shown: raw, copied: flat });
+    expect(await drag(8)).toEqual({ shown: raw, copied: raw });
+    expect(await drag(16)).toEqual({ shown: raw, copied: raw });
+    expect(await drag(24)).toEqual({ shown: raw, copied: raw });
+    // Only the press counts: Alt let go during the drag, or pressed after it began.
+    expect(await drag(8, 32, 0)).toEqual({ shown: raw, copied: raw });
+    expect(await drag(0, 40, 8)).toEqual({ shown: raw, copied: flat });
+  } finally {
+    done();
+  }
+});
+
+test("the copy toast says when a drag joined a command onto one line", async () => {
+  const { s, drag, done } = copying();
+  try {
+    await drag(0);
+    expect(s.copy_note).toBe("joined");
+    expect(s.copy_feedback_until).toBeGreaterThan(0);
+    await drag(8);
+    expect(s.copy_note).toBeNull();
+  } finally {
+    done();
+  }
+});
+
+test("in a pane whose app takes the mouse, a Shift drag copies raw", async () => {
+  const { s, term, drag, raw, done } = copying(true);
+  try {
+    expect(term.mouseEvents()).toBe(true);
+    expect(await drag(4)).toEqual({ shown: raw, copied: raw });
+    expect(await drag(12)).toEqual({ shown: raw, copied: raw });
+    expect(await drag(20)).toEqual({ shown: raw, copied: raw });
+    // Without Shift the app gets the drag.
+    s.clipboard = "";
+    expect((await drag(8)).copied).toBe("");
+  } finally {
+    done();
+  }
+});
+
+test("a Ctrl press on a link that moves selects and copies raw, without opening the link", async () => {
+  const { s, mouse, click, opened, done } = linking();
+  try {
+    await mouse(16);
+    await mouse(48, 3);
+    expect(s.selection).toMatchObject({ pane: 1, modifier: true, moved: true });
+    await mouse(16, 3, true);
+    expect(s.clipboard).toBe("ello");
+    expect(await opened()).toEqual([]);
+    // A plain press on it that moves selects for cleanup.
+    clock.advance(clock.double_click_ms + 1);
+    await mouse(0);
+    await mouse(32, 3);
+    expect(s.selection).toMatchObject({ modifier: false, moved: true });
+    await mouse(0, 3, true);
+    expect(await opened()).toEqual([]);
+    // A Ctrl+click still opens it.
+    clock.advance(clock.double_click_ms + 1);
+    await click(16);
+    expect(await opened()).toEqual(["https://example.com/hello"]);
+  } finally {
+    done();
+  }
+});
+
+test("a triple-click over several rows copies the cleaned-up lines; over one row, the trimmed line", async () => {
+  const { s, term, rect, cell, done } = copying(false, {});
+  const filler = "x".repeat(rect.w - 22);
+  const triple = async () => {
+    s.clipboard = "";
+    for (let i = 0; i < 3; i++) await s.input(bytes(`\x1b[<0;${cell(3, 0)}M\x1b[<0;${cell(3, 0)}m`));
+    while (s.gesture) await Bun.sleep(1);
+    return s.clipboard;
+  };
+  try {
+    const answer = (match: object, copy: string, shown: string) =>
+      spyOn(term, "pick").mockResolvedValue({ match, copy, shown });
+    const both = `kubectl get pods -n ${filler}\n  -o wide`;
+    const pick = answer({ x: 2, y: 0, end_x: 8, end_y: 1 }, both, both.replace("\n  ", ""));
+    spyOn(term, "pinnedMatches").mockReturnValue(true);
+    expect(await triple()).toBe(`kubectl get pods -n ${filler} -o wide`);
+    pick.mockResolvedValue({ match: { x: 2, y: 1, end_x: 8, end_y: 1 }, copy: "-o wide", shown: "-o wide" });
+    expect(await triple()).toBe("-o wide");
+  } finally {
+    done();
+  }
+});
+
+test("a selection's first line counts from where it starts, its indent from the row's", () => {
+  const { s, term, done } = copying();
+  try {
+    expect(s.selectionSnapshot(term, "-o wide\n  next", 2, 1)).toMatchObject({ start_x: 2, first_indent: 2 });
+    expect(s.selectionSnapshot(term, "  -o wide\n  next", 0, 1)).toMatchObject({ start_x: 0, first_indent: 2 });
+  } finally {
+    done();
+  }
+});
+
+test("a drag copies the text as shown when the daemon can't read it back or the pane changed since", async () => {
+  const { term, drag, raw, done } = copying();
+  try {
+    const pick = spyOn(term, "pick").mockResolvedValue(null);
+    expect((await drag(0)).copied).toBe(raw);
+    pick.mockResolvedValue({ match: { x: 0, y: 0, end_x: 8, end_y: 1 }, copy: "  ls\n  -o wide", shown: "ls-o wide" });
+    expect((await drag(0)).copied).toBe(raw);
+  } finally {
+    done();
+  }
+});
+
+test("a copy made while a drag waits on the daemon wins over the drag's", async () => {
+  const { s, term, daemon, drag, raw, flat, done } = copying();
+  try {
+    let answer!: (result: protocol.PickResult) => void;
+    spyOn(term, "pick").mockReturnValueOnce(new Promise(resolve => (answer = resolve)));
+    expect((await drag(0)).copied).toBe("");
+    expect((await drag(8)).copied).toBe(raw);
+    answer(daemon.pick("cell", 0, 0, 8, 1, 0));
+    await Bun.sleep(0);
+    expect(s.clipboard).toBe(raw);
+    // Unraced, the same drag copies the joined command.
+    expect((await drag(0)).copied).toBe(flat);
+  } finally {
+    done();
+  }
+});
+
+test("a drag over a line the terminal wrapped copies it whole", async () => {
+  const { s, term, daemon, rect, cell, done } = copying();
+  try {
+    daemon.feed(`\x1b[2J\x1b[H$ ls ${"y".repeat(rect.w)}`);
+    term.receive(daemon.surface(1));
+    await s.input(bytes(`\x1b[<0;${cell(0, 0)}M\x1b[<32;${cell(10, 1)}M\x1b[<0;${cell(10, 1)}m`));
+    await Bun.sleep(0);
+    expect(s.clipboard).toBe(`ls ${"y".repeat(rect.w)}`);
+  } finally {
+    done();
+  }
+});
+
+test("a drag from the bottom right measures the selection from its first cell in reading order", async () => {
+  const { s, cell, flat, done } = copying();
+  try {
+    const snapshot = spyOn(s, "selectionSnapshot");
+    await s.input(bytes(`\x1b[<0;${cell(8, 1)}M\x1b[<32;${cell(2, 0)}M\x1b[<0;${cell(2, 0)}m`));
+    expect(snapshot.mock.calls[0].slice(2)).toEqual([2, 0]);
+    expect(s.clipboard).toBe(flat);
+  } finally {
+    done();
+  }
+});
+
+test("a selection starting near the end of a full row still counts from its column", () => {
+  const { s, term, rect, done } = copying();
+  try {
+    // Row 0 is full, so a selection from 5 cells before its end goes on past it.
+    const x = rect.w - 5;
+    expect(s.selectionSnapshot(term, "xxxxx and more\n  next", x, 0)).toMatchObject({ start_x: x, first_indent: 2 });
+  } finally {
+    done();
+  }
+});
+
+test("when cleanup fails, a drag copies the text as selected", async () => {
+  const { s, term, drag, raw, done } = copying();
+  try {
+    spyOn(term.inner, "text").mockImplementation(() => {
+      throw Error("TerminalClosed");
+    });
+    expect((await drag(0)).copied).toBe(raw);
+  } finally {
+    done();
+  }
+});
+
+test("a triple-click copies raw when plain drags don't clean up, and a double-click drag always does", async () => {
+  const { s, term, cell, done } = copying(false, {});
+  const press = async (count: number, to: string | null = null) => {
+    s.clipboard = "";
+    for (let i = 0; i < count; i++) {
+      const last = i === count - 1;
+      await s.input(bytes(`\x1b[<0;${cell(3, 0)}M`));
+      if (last && to) await s.input(bytes(`\x1b[<32;${to}M`));
+      await s.input(bytes(`\x1b[<0;${to && last ? to : cell(3, 0)}m`));
+    }
+    while (s.gesture) await Bun.sleep(1);
+    return s.clipboard;
+  };
+  try {
+    const both = "kubectl get pods\n    -o wide";
+    const pick = spyOn(term, "pick").mockResolvedValue({
+      match: { x: 2, y: 0, end_x: 8, end_y: 1 },
+      copy: both,
+      shown: both,
+    });
+    spyOn(term, "pinnedMatches").mockReturnValue(true);
+    s.prefs.smart_copy = false;
+    clock.advance(clock.double_click_ms + 1);
+    expect(await press(3)).toBe(both);
+    s.prefs.smart_copy = true;
+    clock.advance(clock.double_click_ms + 1);
+    pick.mockResolvedValue({ match: { x: 2, y: 1, end_x: 10, end_y: 1 }, copy: "  -o wide  ", shown: "-o wide" });
+    expect(await press(3)).toBe("-o wide");
+    // When cleanup fails, the line is copied as picked.
+    const text = spyOn(term.inner, "text").mockImplementation(() => {
+      throw Error("TerminalClosed");
+    });
+    clock.advance(clock.double_click_ms + 1);
+    expect(await press(3)).toBe("  -o wide  ");
+    text.mockRestore();
+    // A word picked by a double-click drag is copied as picked.
+    clock.advance(clock.double_click_ms + 1);
+    pick.mockResolvedValue({ match: { x: 2, y: 0, end_x: 8, end_y: 1 }, copy: both, shown: both });
+    expect(await press(2, cell(8, 1))).toBe(both);
+  } finally {
+    done();
+  }
+});
+
+test("with Smart Copy off, no drag cleans up", async () => {
+  const { s, drag, raw, done } = copying();
+  try {
+    s.prefs.smart_copy = false;
+    for (const button of [0, 8, 16]) expect((await drag(button)).copied).toBe(raw);
+  } finally {
+    done();
+  }
+});
+
+test("setup saves Smart Copy, and another viewer's change applies without a restart", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-copy-cleanup-")),
+    saved = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = root;
+  const s = controller();
+  try {
+    s.loadPreferences();
+    expect(s.prefs.smart_copy).toBe(true);
+    await s.applySetup({ kind: "smart_copy", on: false });
+    expect(s.prefs.smart_copy).toBe(false);
+    expect(preferences.read().smart_copy).toBe(false);
+    // Another viewer turns it back on, and this one redraws.
+    await Bun.sleep(20);
+    s.dirty = false;
+    preferences.update({ smart_copy: true });
+    const due = Date.now() + 1000;
+    while (!s.prefs.smart_copy && Date.now() < due) await Bun.sleep(20);
+    expect(s.prefs.smart_copy).toBe(true);
+    expect(s.dirty).toBe(true);
+  } finally {
+    s.closePreferences?.();
+    viewer.close(s);
+    if (saved === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = saved;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a selection attached with @ is dedented and never flattened, whatever the preference", async () => {
+  const { s, term, done } = copying();
+  try {
+    const mention = { kind: "selection", pane: 1, name: "shell" };
+    const selected = spyOn(term, "selectedText").mockReturnValue(
+      "  kubectl get pods -n web\n  -o wide\n    -l app=web",
+    );
+    for (const smart of [true, false]) {
+      s.prefs.smart_copy = smart;
+      expect(await s.resolveMention(mention)).toBe("kubectl get pods -n web\n-o wide\n  -l app=web");
+    }
+    selected.mockRestore();
+  } finally {
+    done();
+  }
+});
+
+test("copy mode, the sign-in screen and an app's own copies stay raw", async () => {
+  const { s, term, raw, rect, cell, done } = copying();
+  const native = NativeTerminal.create(rect.w, 5);
+  try {
+    // Copy mode's copy.
+    await s.input(bytes(`\x1b[<0;${cell(0, 0)}M\x1b[<32;${cell(8, 1)}M`));
+    s.selection = null;
+    s.copy_mode = true;
+    s.clipboard = "";
+    await s.input(bytes("y"));
+    expect(s.clipboard).toBe(raw);
+    s.copy_mode = false;
+    term.clearSelection();
+    // An app's OSC 52 copy, as the daemon passes it on.
+    await s.perform({ name: "copy", value: "  a\n    b" });
+    expect(s.clipboard).toBe("  a\n    b");
+    // A drag on the sign-in screen.
+    native.feed(`  kubectl get pods -n ${"x".repeat(rect.w - 22)}\r\n  -o wide`);
+    s.signin = {
+      typing: true,
+      child: native,
+      body: () => ({ x: 0, y: 0, cols: rect.w, rows: 5 }),
+      send: () => {},
+      click: async () => {},
+    };
+    spyOn(s, "signinRect").mockReturnValue({ x: 0, y: 0, w: rect.w, h: 5 });
+    await s.signinMouse(0, 0, 0, false);
+    await s.signinMouse(32, 8, 1, false);
+    await s.signinMouse(0, 8, 1, true);
+    expect(s.clipboard).toBe(raw);
+  } finally {
+    s.signin = null;
+    native.destroy();
+    done();
+  }
+});

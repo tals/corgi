@@ -277,6 +277,22 @@ test("a picked line copies only the rows the view shows", () => {
     t.destroy();
   }
 });
+test("a cell pick copies a drag's cells, joining the terminal's wraps but not a program's line breaks", () => {
+  const t = Terminal.create(20, 4);
+  try {
+    t.feed("  $ kubectl get pods -o wide\r\n  make install");
+    expect(t.pick("cell", 2, 0, 13, 2, 0)).toEqual({
+      match: { x: 2, y: 0, end_x: 13, end_y: 2 },
+      shown: "$ kubectl get pods-o widemake install",
+      copy: "$ kubectl get pods -o wide\n  make install",
+    });
+    // Dragged backwards, the same cells.
+    expect(t.pick("cell", 13, 2, 2, 0, 0).copy).toBe("$ kubectl get pods -o wide\n  make install");
+    expect(t.pick("cell", 4, 0, null, null, 0).copy).toBe("k");
+  } finally {
+    t.destroy();
+  }
+});
 test("a picked word follows a soft wrap", () => {
   const t = Terminal.create(10, 4);
   try {

@@ -1,0 +1,11 @@
+width: 80
+start_x: 4
+first_indent: 4
+
+    image: nginx
+    ports:
+      - 80
+---
+image: nginx
+ports:
+  - 80

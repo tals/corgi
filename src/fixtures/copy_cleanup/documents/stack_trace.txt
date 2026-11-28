@@ -1,0 +1,11 @@
+width: 80
+start_x: 2
+first_indent: 2
+
+  Exception in thread "main" java.lang.NullPointerException
+      at com.example.App.load(App.java:42)
+      at com.example.App.main(App.java:14)
+---
+Exception in thread "main" java.lang.NullPointerException
+    at com.example.App.load(App.java:42)
+    at com.example.App.main(App.java:14)

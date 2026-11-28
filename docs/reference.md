@@ -69,6 +69,25 @@ the sidebar, panes and review panel. **prefix b** hides or shows the sidebar.
 [Workspace activity and worktrees](workspaces.md) explains its indicators.
 
 Drag terminal text to copy it; hold Shift over mouse-aware applications.
+A line the terminal wrapped copies as one line.
+
+**Smart Copy**, on by default under **Clever Corgi** in Corgi setup, also
+tidies what a drag copies, after [Trimmy](https://github.com/steipete/Trimmy).
+A command an agent wrapped onto up to four indented rows, split with trailing
+backslashes, or continued after `|` or `&&`, pastes as one line, without its
+indent or a leading `$ ` prompt; a wrapped row that starts with a command such
+as `make` or `git` stays a separate command. Other text, such as YAML, a list,
+a stack trace or a code block, keeps its lines and loses only the indent they
+all share. A triple-click over several lines is tidied the same way; a single
+line is only trimmed and loses a leading `$ ` prompt. A path the agent split
+exactly at the pane edge can join the next word without a space, because it
+looks the same as a long URL running on. Hold Alt or Ctrl when you press to
+copy the text exactly as shown. On macOS, Ghostty may turn a Ctrl press into a
+right-click, which opens the pane menu; use Alt there. A pane whose
+application takes the mouse is never tidied, Shift drags included, and text an
+application copies itself is never changed. The copy notice says **Copied as
+one line** for a joined command, and **Copied to clipboard** otherwise.
+
 The wheel enters scroll mode. There, `j/k`, PageUp/PageDown and `g/G` move,
 `/` searches, `n/N` repeat the search, `y` or Enter copies, and `q` exits.
 Output continues while you scroll.
