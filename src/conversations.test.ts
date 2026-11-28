@@ -776,6 +776,96 @@ test("a Claude subagent ends at its SubagentStop, without its parent's Stop", ()
   expect(parent.state.subagents.running).toBe(1);
 });
 
+/** A Claude parent waiting on background subagent a1, and the hooks a1 sends. */
+function waitingOnAgent() {
+  const registry = new Registry();
+  const parent = registry.get("claude", "parent");
+  const hooks = new Hooks();
+  const decode = (value: object) => hooks.decode({ session_id: "parent", ...value })!;
+  const from = (agent_id: string, hook_event_name: string, more: object = {}) =>
+    decode({ hook_event_name, agent_id, agent_type: "general-purpose", tool_name: "Bash", ...more });
+  const running = [{ id: "a1", type: "subagent", status: "running", description: "Lane A" }];
+  registry.observeHook(parent, decode({ hook_event_name: "UserPromptSubmit" }), 1n, false, 100);
+  registry.observeHook(
+    parent,
+    decode({
+      hook_event_name: "PostToolUse",
+      tool_name: "Agent",
+      tool_input: { description: "Lane A", subagent_type: "general-purpose" },
+      tool_response: { status: "async_launched", agentId: "a1" },
+    }),
+    2n,
+    false,
+    200,
+  );
+  registry.observeHook(parent, decode({ hook_event_name: "Stop", background_tasks: running }), 3n, false, 300);
+  const notification = decode({ hook_event_name: "Notification", notification_type: "permission_prompt" });
+  return { registry, parent, decode, from, notification, running };
+}
+
+test("a Claude parent waits on its subagent again once the subagent's prompt is answered", () => {
+  const { registry, parent, from, notification } = waitingOnAgent();
+  expect(parent.state.subagents.waiting).toBe(true);
+  expect(registry.observeHook(parent, from("a1", "PermissionRequest"), 4n, false, 400)).toBe(false);
+  // The prompt shows on the parent's screen, under a notification that names no agent.
+  expect(registry.observeHook(parent, notification, 5n, false, 500)).toBe(true);
+  expect(parent.state.state).toBe("blocked");
+  expect(parent.state.attention).toBe("needs_input");
+  registry.observeHook(parent, from("a1", "PostToolUse"), 6n, false, 600);
+  expect(parent.state.state).toBe("working");
+  expect(parent.state.subagents).toMatchObject({ running: 1, waiting: true });
+  expect(parent.state.attention).toBe("none");
+  expect(parent.state.last_seq).toBe(5n);
+});
+
+test("a Claude parent stays blocked until every subagent it shows a prompt for goes on", () => {
+  const { registry, parent, from, notification } = waitingOnAgent();
+  registry.observeHook(parent, from("a1", "PermissionRequest"), 4n, false, 400);
+  registry.observeHook(parent, notification, 5n, false, 500);
+  registry.observeHook(parent, from("a2", "PermissionRequest"), 6n, false, 600);
+  registry.observeHook(parent, notification, 7n, false, 700);
+  registry.observeHook(parent, from("a2", "PostToolUseFailure"), 8n, false, 800);
+  expect(parent.state.state).toBe("blocked");
+  registry.observeHook(parent, from("a1", "PostToolUse"), 9n, false, 900);
+  expect(parent.state.state).toBe("working");
+});
+
+test("a Claude subagent's other tool calls leave its prompt open", () => {
+  const { registry, parent, from, notification } = waitingOnAgent();
+  const fetch = { tool_name: "WebFetch", tool_input: { url: "https://example.com" } };
+  registry.observeHook(parent, from("a1", "PermissionRequest", fetch), 4n, false, 400);
+  registry.observeHook(parent, notification, 5n, false, 500);
+  registry.observeHook(
+    parent,
+    from("a1", "PostToolUse", { tool_name: "Grep", tool_input: { pattern: "x" } }),
+    6n,
+    false,
+    600,
+  );
+  expect(parent.state.state).toBe("blocked");
+  registry.observeHook(parent, from("a1", "PostToolUse", fetch), 7n, false, 700);
+  expect(parent.state.state).toBe("working");
+});
+
+test("a Claude subagent that stops at its prompt ends its parent's block", () => {
+  const { registry, parent, from, notification, running } = waitingOnAgent();
+  registry.observeHook(parent, from("a1", "PermissionRequest"), 4n, false, 400);
+  registry.observeHook(parent, notification, 5n, false, 500);
+  registry.observeHook(parent, from("a1", "SubagentStop", { background_tasks: running }), 6n, false, 600);
+  expect(parent.state.state).toBe("working");
+  expect(parent.state.subagents).toMatchObject({ running: 0, waiting: false });
+});
+
+test("a Claude subagent's tool leaves its parent's own permission prompt alone", () => {
+  const { registry, parent, decode, from, notification } = waitingOnAgent();
+  registry.observeHook(parent, from("a1", "PermissionRequest"), 4n, false, 400);
+  registry.observeHook(parent, decode({ hook_event_name: "PermissionRequest", tool_name: "Bash" }), 5n, false, 500);
+  registry.observeHook(parent, notification, 6n, false, 600);
+  registry.observeHook(parent, from("a1", "PostToolUse"), 7n, false, 700);
+  expect(parent.state.state).toBe("blocked");
+  expect(parent.state.attention).toBe("needs_input");
+});
+
 test("a Claude session's end ends the subagents its last Stop listed", () => {
   const registry = new Registry();
   const parent = registry.get("claude", "parent");

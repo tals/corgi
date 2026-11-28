@@ -455,6 +455,47 @@ class Observations extends Runtime {
     this.assertEqual(seen.agent.state, "idle");
     this.assertEqual(seen.children, { "Lane A": "idle", "Lane B": "idle" });
   }
+  async test_claude_waits_on_its_subagent_again_once_the_subagents_prompt_is_answered() {
+    this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
+    const lane = { id: "a1", type: "subagent", status: "running", description: "Lane A" };
+    const parent = async () => {
+      const snapshot = await this.session();
+      const id = snapshot.panes.find((p: any) => p.id === this.pane).agent.conversation;
+      return snapshot.conversations.find((c: any) => c.id === id);
+    };
+    const inside = (event: string, extra: Record<string, any> = {}) =>
+      this.hook(event, "claude", { agent_id: "a1", agent_type: "general-purpose", tool_name: "Bash", ...extra });
+    await this.hook("UserPromptSubmit", "claude");
+    await this.hook("PostToolUse", "claude", {
+      tool_name: "Agent",
+      tool_input: { description: "Lane A", subagent_type: "general-purpose" },
+      tool_response: { status: "async_launched", agentId: "a1" },
+    });
+    await this.hook("Stop", "claude", { background_tasks: [lane] });
+    appendFileSync(
+      this.log,
+      JSON.stringify({
+        type: "system",
+        subtype: "turn_duration",
+        sessionId: SESSION,
+        timestamp: new Date().toISOString(),
+      }) + "\n",
+    );
+    await this.settleTranscript();
+    this.assertEqual((await parent()).agent.subagents.waiting, true);
+    await inside("PreToolUse");
+    await inside("PermissionRequest");
+    await this.hook("Notification", "claude", { notification_type: "permission_prompt" });
+    await this.settle();
+    let seen = await parent();
+    this.assertEqual([seen.agent.state, seen.agent.attention], ["blocked", "needs_input"]);
+    await inside("PostToolUse");
+    await this.settle();
+    seen = await parent();
+    this.assertEqual([seen.agent.state, seen.agent.attention], ["working", "none"]);
+    this.assertEqual(seen.agent.subagents, { running: 1, blocked: 0, waiting: true });
+    this.assertEqual((await this.state()).completed, 0);
+  }
   async test_claude_pauses_while_its_monitor_or_wakeup_can_wake_it() {
     this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     // A stand-in for the Claude process that sends the hooks.
