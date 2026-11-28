@@ -17,6 +17,7 @@ export function overview(
   const sgr = (code: string, text: string) => (rich && text ? `\x1b[${code}m${text}\x1b[0m` : text),
     bold = (text: string) => sgr("1", text),
     dim = (text: string) => sgr("2", text),
+    skillFile = sgr("36", "skill.md"),
     link = (url: string, text: string) => (rich ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text);
   const groups: [string, Row[]][] = [
     [
@@ -39,6 +40,7 @@ export function overview(
     [
       i18n.t`Agents`,
       [
+        ["--skill", "corgi grep --skill", i18n.t`Print the ${skillFile} for the command`],
         ["message", '4 "keep going"', i18n.t`Prompt an agent through its own channel`],
         ["launcher", "edit claude", "list, hide, show, move, edit, clone, add"],
         ["history", "[--limit 20]", i18n.t`Past conversations, newest first`],
@@ -150,6 +152,7 @@ export function commands(): string {
     i18n.t`    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added`,
     "  corgi memory forget FILE:LINE",
     i18n.t`  corgi --skill                      print bundled agent instructions`,
+    "    corgi grep --skill",
     "",
     i18n.t`IDs come from list; current means CORGI_PANE, never UI focus.`,
     i18n.t`New tabs and launcher mutations outside Corgi require --workspace.`,
