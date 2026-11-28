@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import type { InferenceModel, Launcher } from "../adapter";
 import { str } from "../common";
-import { directory, identity, read } from "./config";
-import { Info, Text } from "../../usage/account";
+import { directory, read } from "./config";
+import { Client } from "./account";
 import * as discovery from "../../discovery";
 import { run, type Quit } from "../../subprocess";
 
@@ -26,22 +26,15 @@ export async function models(account: string, quit: Quit, cwd = "/tmp") {
   return catalog(reply.stdout.toString());
 }
 export function open(account: string): Launcher {
-  const file = join(directory(account), "settings.json");
+  const file = join(directory(account), "settings.json"),
+    client = new Client(account);
   return {
-    async account() {
-      const info = new Info(),
-        login = await identity(account);
-      if (login) {
-        info.account = new Text(login.email);
-        info.signed_in = true;
-      }
-      return info;
-    },
+    account: (quit, max_age, cwd) => client.preview(quit, max_age, cwd),
     async model() {
       const model = str(await read(file), "model");
       return { model, source: model ? "User settings" : "Account default / provider selection" };
     },
     watches: () => [file, join(directory(account), "antigravity-oauth-token")],
-    close() {},
+    close: () => client.close(),
   };
 }

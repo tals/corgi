@@ -4,7 +4,7 @@ import type { Adapter } from "../adapter";
 import * as commandLine from "../command_line";
 import * as effort from "../effort";
 import { info } from "./info";
-import { home, customizations, directory, identity, validSession } from "./config";
+import { home, configured, customizations, directory, identity, validSession } from "./config";
 import { interactiveFork, launchSettings } from "./fork";
 import * as hooks from "./hooks";
 import * as status from "./status";
@@ -34,6 +34,7 @@ export const adapter: Adapter = {
     prefix: "",
     identity,
     variant: async () => "",
+    configured: root => configured(root),
     shared: { dirs: [], files: [] },
     signin: null,
   },
