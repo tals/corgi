@@ -152,7 +152,7 @@ test("--help prints help instead of running the command", async () => {
       [["--no-agent", "-h"], "corgi help --all"],
       [["agent", "--help"], "corgi agent"],
       [["serve", "--help"], "corgi shutdown"],
-      [["--skill", "--help"], "corgi --skill"],
+      [["--skill", "--help"], "corgi grep --skill"],
       [["pane", "send", "--stdin", "--help"], "corgi pane send"],
       [["help", "pane", "read"], "corgi pane read"],
       [["--help", "pane", "read"], "corgi pane read"],

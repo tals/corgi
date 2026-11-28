@@ -1082,6 +1082,7 @@
   "Previous pane": "Предыдущая панель",
   "Previous tab": "Предыдущая вкладка",
   "Previous workspace": "Предыдущее пространство",
+  "Print the ${skillFile} for the command": "Вывести ${skillFile} для команды",
   "Process counts unavailable": "Число процессов неизвестно",
   "Process information unavailable": "Информация о процессах недоступна",
   "Process list may be incomplete": "Список процессов может быть неполным",

@@ -802,6 +802,7 @@
   "Previous pane": "前のペイン",
   "Previous tab": "前のタブ",
   "Previous workspace": "前のワークスペース",
+  "Print the ${skillFile} for the command": "コマンドの ${skillFile} を表示",
   "Process counts unavailable": "プロセス数は不明です",
   "Process information unavailable": "プロセス情報を取得できません",
   "Process list may be incomplete": "プロセス一覧が不完全な可能性があります",

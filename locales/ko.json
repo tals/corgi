@@ -802,6 +802,7 @@
   "Previous pane": "이전 패널",
   "Previous tab": "이전 탭",
   "Previous workspace": "이전 작업 공간",
+  "Print the ${skillFile} for the command": "명령어의 ${skillFile} 출력",
   "Process counts unavailable": "프로세스 수를 알 수 없음",
   "Process information unavailable": "프로세스 정보를 사용할 수 없습니다",
   "Process list may be incomplete": "프로세스 목록이 불완전할 수 있습니다",

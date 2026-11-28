@@ -54,6 +54,7 @@ Agent controls (--json prints the daemon's reply as JSON):
     to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added
   corgi memory forget FILE:LINE
   corgi --skill                      print bundled agent instructions
+    corgi grep --skill
 
 IDs come from list; current means CORGI_PANE, never UI focus.
 New tabs and launcher mutations outside Corgi require --workspace.
